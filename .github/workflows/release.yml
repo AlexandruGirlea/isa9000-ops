@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'AlexandruGirlea/isa9000-ops'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+      - run: uvx --from reuse==6.2.0 reuse lint
+      - run: |
+          uv run --frozen --project services ruff check .
+          uv run --frozen --project services ruff check --config services/pyproject.toml local .github
+      - run: uv run --frozen pytest -q
+        working-directory: infra
+      - run: make up && make test && make check
+      - run: docker build --file services/Dockerfile --tag services:production .
+      - run: docker run --rm services:production isa9000 --help
+      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          image-ref: services:production
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          scanners: vuln
+      - name: Generate production image SBOM
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          scan-type: image
+          image-ref: services:production
+          format: cyclonedx
+          output: services.cdx.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: services-sbom
+          path: services.cdx.json
+          retention-days: 90
+          if-no-files-found: error
+      - run: docker save services:production -o "$RUNNER_TEMP/services.tar"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: services-image
+          path: ${{ runner.temp }}/services.tar
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+      - if: always()
+        run: make clean
+
+  image:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.publish.outputs.digest }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: services-image
+          path: ${{ runner.temp }}
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the tested image
+        id: publish
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]
+          docker load -i "$RUNNER_TEMP/services.tar"
+          image="ghcr.io/alexandrugirlea/isa9000-ops:$version"
+          docker tag services:production "$image"
+          docker push "$image"
+          digest=$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')
+          echo "digest=${digest#*@}" >> "$GITHUB_OUTPUT"
+
+  attest:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attest the published image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ghcr.io/alexandrugirlea/isa9000-ops
+          subject-digest: ${{ needs.image.outputs.image_tag }}
+          push-to-registry: true
+          create-storage-record: false
+
+  dev:
+    needs: [build, image, attest]
+    if: >-
+      always() && github.repository != 'AlexandruGirlea/isa9000-ops' &&
+      (needs.build.result == 'skipped' || needs.attest.result == 'success')
+    uses: ./.github/workflows/deploy-stack.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: dev
+      image_tag: ${{ needs.image.outputs.image_tag }}
+    secrets: inherit
+
+  test:
+    needs: [image, dev]
+    if: always() && needs.dev.result == 'success'
+    uses: ./.github/workflows/deploy-stack.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: test
+      image_tag: ${{ needs.image.outputs.image_tag }}
+    secrets: inherit
+
+  prod:
+    needs: [image, test]
+    if: always() && needs.test.result == 'success'
+    uses: ./.github/workflows/deploy-stack.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: prod
+      image_tag: ${{ needs.image.outputs.image_tag }}
+    secrets: inherit

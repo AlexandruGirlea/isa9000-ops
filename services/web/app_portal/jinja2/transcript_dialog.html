@@ -1,0 +1,221 @@
+<style>
+  .transcript-dialog { width: min(840px, calc(100vw - 32px)); max-width: none; max-height: min(86vh, 900px); max-height: min(86dvh, 900px); padding: 0; border: 1px solid var(--card-border, #dedee8); border-radius: 18px; background: var(--card-bg, #fff); color: var(--text, #242330); box-shadow: 0 24px 100px rgba(0, 0, 0, .3); overflow: hidden; }
+  .transcript-dialog[open] { display: flex; flex-direction: column; }
+  .transcript-dialog::backdrop { background: rgba(12, 10, 24, .65); backdrop-filter: blur(4px); }
+  .transcript-dialog .transcript-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; flex: 0 0 auto; gap: 20px; padding: 22px 28px; border-bottom: 1px solid var(--card-border, #dedee8); }
+  .transcript-dialog .transcript-dialog-kicker { margin: 0 0 6px; color: var(--text-muted-custom, #656574); font-size: .8rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+  .transcript-dialog .transcript-dialog-title { margin: 0; font-size: clamp(1.1rem, 3vw, 1.4rem); line-height: 1.4; font-weight: 700; overflow-wrap: anywhere; }
+  .transcript-dialog .transcript-dialog-close { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border: 1px solid var(--card-border, #dedee8); border-radius: 10px; background: var(--gray-bg, #f7f7fb); color: inherit; font: inherit; font-size: 1.7rem; line-height: 1; cursor: pointer; }
+  .transcript-dialog .transcript-dialog-close:hover { border-color: var(--primary, #6041c4); color: var(--primary, #6041c4); }
+  .transcript-dialog .transcript-dialog-body { min-height: 0; padding: 28px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .transcript-dialog [data-transcript-status] { margin: 0; color: var(--text-muted-custom, #656574); line-height: 1.6; }
+  .transcript-dialog [data-transcript-text] { max-width: 70ch; margin: 0 auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1rem; line-height: 1.85; }
+  .transcript-dialog .transcript-dialog-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 18px 28px; border-top: 1px solid var(--card-border, #dedee8); }
+  .transcript-dialog .transcript-dialog-actions p { flex: 1 1 230px; margin: 0; color: var(--text-muted-custom); font-size: .85rem; line-height: 1.5; }
+  .transcript-dialog .transcript-dialog-actions button { min-height: 44px; padding: 10px 18px; border: 1px solid var(--card-border); border-radius: 10px; font: inherit; font-weight: 600; cursor: pointer; background: var(--gray-bg); color: var(--text); }
+  .transcript-dialog .transcript-dialog-actions button[type=submit] { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .transcript-dialog button:disabled { opacity: .6; cursor: wait; }
+  .transcript-dialog textarea { display: block; width: 100%; min-height: 300px; height: 45vh; resize: vertical; padding: 16px; background: var(--gray-bg); color: var(--text); border: 1px solid var(--card-border); border-radius: 10px; font: inherit; line-height: 1.7; }
+  .transcript-dialog textarea:focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .transcript-dialog .transcript-edit-warning { margin-bottom: 16px; padding: 16px; border: 1px solid var(--primary); border-radius: 10px; line-height: 1.6; }
+  .transcript-dialog .transcript-edit-warning p { margin: 0 0 12px; }
+  .transcript-dialog .transcript-edit-warning label { display: flex; align-items: flex-start; gap: 10px; }
+  .transcript-dialog .transcript-edit-warning input { margin-top: 6px; accent-color: var(--primary); }
+  .transcript-dialog [data-transcript-status]:not([hidden]) { margin-bottom: 16px; }
+  .transcript-dialog [hidden] { display: none; }
+  :root:has(.transcript-dialog[open]) { overflow: hidden; }
+  @media (max-width: 575px) {
+    .transcript-dialog { width: calc(100vw - 16px); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); border-radius: 14px; }
+    .transcript-dialog .transcript-dialog-header { gap: 12px; padding: 18px; }
+    .transcript-dialog .transcript-dialog-body { padding: 22px 18px; }
+    .transcript-dialog .transcript-dialog-actions { padding: 16px 18px; }
+    .transcript-dialog .transcript-dialog-actions p { flex-basis: 100%; }
+    .transcript-dialog .transcript-dialog-actions button { flex: 1; }
+  }
+</style>
+<dialog id="transcript-dialog" class="transcript-dialog" aria-labelledby="transcript-dialog-title">
+  <div class="transcript-dialog-header">
+    <div>
+      <p class="transcript-dialog-kicker">Episode transcript</p>
+      <h2 id="transcript-dialog-title" class="transcript-dialog-title">Transcript</h2>
+    </div>
+    <button type="button" class="transcript-dialog-close" data-transcript-close aria-label="Close transcript" autofocus><span aria-hidden="true">×</span></button>
+  </div>
+  <div class="transcript-dialog-body" tabindex="0" aria-label="Transcript">
+    <p data-transcript-status role="status" aria-live="polite">Loading transcript…</p>
+    <div data-transcript-text hidden></div>
+    <form id="transcript-editor-form" hidden>
+      <div class="transcript-edit-warning" data-transcript-published hidden>
+        <p>This podcast is published. Saving an edit removes it from the library until you approve the updated transcript and record new audio.</p>
+        <label><input type="checkbox" data-transcript-unpublish><span>I understand this podcast will be unpublished.</span></label>
+      </div>
+      <label class="visually-hidden" for="transcript-editor">Transcript text</label>
+      <textarea id="transcript-editor" aria-label="Transcript text" maxlength="100000" required spellcheck="true"></textarea>
+    </form>
+  </div>
+  <div class="transcript-dialog-actions" data-transcript-actions hidden>
+    <p data-transcript-edit-reason></p>
+    <button type="button" data-transcript-edit hidden>Edit transcript</button>
+    <button type="button" data-transcript-cancel hidden>Cancel</button>
+    <button type="submit" form="transcript-editor-form" data-transcript-save hidden>Save changes</button>
+  </div>
+</dialog>
+<script nonce="{{ request.csp_nonce }}">
+(() => {
+  const dialog = document.getElementById('transcript-dialog');
+  const title = dialog.querySelector('#transcript-dialog-title');
+  const status = dialog.querySelector('[data-transcript-status]');
+  const content = dialog.querySelector('[data-transcript-text]');
+  const body = dialog.querySelector('.transcript-dialog-body');
+  const close = dialog.querySelector('[data-transcript-close]');
+  const actions = dialog.querySelector('[data-transcript-actions]');
+  const edit = dialog.querySelector('[data-transcript-edit]');
+  const cancel = dialog.querySelector('[data-transcript-cancel]');
+  const save = dialog.querySelector('[data-transcript-save]');
+  const reason = dialog.querySelector('[data-transcript-edit-reason]');
+  const form = dialog.querySelector('#transcript-editor-form');
+  const editor = dialog.querySelector('#transcript-editor');
+  const published = dialog.querySelector('[data-transcript-published]');
+  const unpublish = dialog.querySelector('[data-transcript-unpublish]');
+  let opener;
+  let controller;
+  let data;
+  let url;
+  let editing = false;
+  let saving = false;
+  let changed = false;
+
+  function dirty() { return editing && editor.value !== data.text; }
+  function setEditing(value) {
+    editing = value;
+    form.hidden = !value;
+    content.hidden = value;
+    edit.hidden = value || data.editable !== true;
+    cancel.hidden = save.hidden = !value;
+    published.hidden = data.published !== true;
+    unpublish.required = value && data.published === true;
+    unpublish.checked = false;
+    status.hidden = true;
+    reason.textContent = value ? 'Changes need your approval before new audio is recorded.' : (data.edit_reason || 'Read the transcript or edit its wording before approval.');
+    if (value) { editor.value = data.text; editor.focus(); }
+  }
+  function requestClose() {
+    if (saving || (dirty() && !confirm('Discard your unsaved transcript changes?'))) return;
+    dialog.close();
+  }
+  async function responseData(response) {
+    if (!response.headers.get('Content-Type')?.includes('application/json')) {
+      throw new Error(response.status === 404 ? 'This transcript is no longer available.' : 'Reload the page to sign in again.');
+    }
+    const result = await response.json();
+    if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : 'The transcript could not be loaded. Please try again.');
+    return result;
+  }
+
+  close.addEventListener('click', requestClose);
+  dialog.addEventListener('cancel', event => { event.preventDefault(); requestClose(); });
+  window.addEventListener('beforeunload', event => {
+    if (dialog.open && (saving || dirty())) { event.preventDefault(); event.returnValue = ''; }
+  });
+  dialog.addEventListener('close', () => {
+    controller?.abort();
+    controller = null;
+    content.textContent = '';
+    editing = false;
+    editor.value = '';
+    body.setAttribute('aria-busy', 'false');
+    if (changed) { location.reload(); return; }
+    if (opener?.isConnected) opener.focus({preventScroll: true});
+  });
+  edit.addEventListener('click', () => setEditing(true));
+  cancel.addEventListener('click', () => {
+    if (dirty() && !confirm('Discard your unsaved transcript changes?')) return;
+    setEditing(false);
+    edit.focus();
+  });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (saving) return;
+    const submitted = editor.value;
+    const token = document.querySelector('input[name=csrfmiddlewaretoken]')?.value;
+    if (!token) { status.textContent = 'Reload the page to sign in again. Your edits have not been saved.'; status.hidden = false; return; }
+    saving = true;
+    save.disabled = cancel.disabled = close.disabled = true;
+    editor.readOnly = true;
+    save.textContent = 'Saving…';
+    status.textContent = 'Saving your changes…';
+    status.hidden = false;
+    try {
+      const response = await fetch(url, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+        headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRFToken': token},
+        body: JSON.stringify({text: submitted, revision: data.revision, unpublish: unpublish.checked}),
+      });
+      const result = await responseData(response);
+      if (typeof result.revision !== 'string') throw new Error('The save could not be confirmed. Your edits are still here; check before retrying.');
+      data = {...data, ...result, text: typeof result.text === 'string' ? result.text : submitted};
+      changed = changed || result.changed === true;
+      if (result.changed === true) data.published = false;
+      content.textContent = data.text || 'This transcript is empty.';
+      setEditing(false);
+      status.textContent = changed ? 'Changes saved. Close this window to review and approve the updated transcript.' : 'No changes to save.';
+      status.hidden = false;
+      if (changed) document.querySelectorAll('button[name=action][value=record]').forEach(button => { button.disabled = true; });
+    } catch (error) {
+      status.textContent = error instanceof TypeError ? 'Changes could not be saved. Your edits are still here. Check your connection and try again.' : error.message;
+      status.hidden = false;
+      body.scrollTop = 0;
+    } finally {
+      saving = false;
+      save.disabled = cancel.disabled = close.disabled = false;
+      editor.readOnly = false;
+      save.textContent = 'Save changes';
+      if (!editing) close.focus();
+    }
+  });
+
+  document.addEventListener('click', async (event) => {
+    const button = event.target instanceof Element && event.target.closest('button[data-transcript-url]');
+    if (!button) return;
+    event.preventDefault();
+    opener = button;
+    data = null;
+    editing = saving = changed = false;
+    form.hidden = actions.hidden = true;
+    controller?.abort();
+    const request = new AbortController();
+    controller = request;
+    title.textContent = button.dataset.episodeTitle || 'Transcript';
+    content.textContent = '';
+    content.hidden = true;
+    status.textContent = 'Loading transcript…';
+    status.hidden = false;
+    body.setAttribute('aria-busy', 'true');
+    body.scrollTop = 0;
+    if (!dialog.open) dialog.showModal();
+    try {
+      url = new URL(button.dataset.transcriptUrl, window.location.href);
+      if (url.origin !== window.location.origin) throw new Error('Invalid transcript address.');
+      const response = await fetch(url, {
+        credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+        headers: {'Accept': 'application/json'}, signal: request.signal,
+      });
+      const result = await responseData(response);
+      if (typeof result.text !== 'string') throw new Error('This transcript cannot be displayed.');
+      if (controller !== request || !dialog.open) return;
+      data = result;
+      if (typeof data.title === 'string' && data.title) title.textContent = data.title;
+      content.textContent = data.text || 'This transcript is empty.';
+      actions.hidden = false;
+      setEditing(false);
+    } catch (error) {
+      if (request.signal.aborted || controller !== request || !dialog.open) return;
+      status.textContent = error instanceof TypeError
+        ? 'The transcript could not be loaded. Reload the page and try again.'
+        : error.message;
+    } finally {
+      if (controller === request) body.setAttribute('aria-busy', 'false');
+    }
+  });
+})();
+</script>

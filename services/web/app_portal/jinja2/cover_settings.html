@@ -1,0 +1,14 @@
+<section class="card" id="podcast-cover"><h2>Cover photo</h2>
+  {% if course.cover %}<img class="cover-current" src="/media/{{ course.id }}/{{ course.cover|urlencode }}" alt="Current podcast cover" width="160" height="160">{% endif %}
+  {% if active %}<p class="hint">You can change the cover when the current run finishes.</p>
+  {% elif not episodes %}<p class="hint">You can add your cover once the podcast has episodes.</p>
+  {% else %}<form method="post" enctype="multipart/form-data" id="cover-form">{{ csrf_input }}{{ cover_form.cover_revision }}{{ cover_form.cover_revision.errors }}
+    <label for="id_cover">{{ cover_form.cover.label }}</label>
+    <p class="hint" id="cover-help">Still JPEG, PNG or WebP, up to 5 MiB. Use a square image, 256–4096 pixels per side; 1024 × 1024 is recommended. Larger images are resized to 1024 × 1024.</p>
+    {{ cover_form.cover }}{{ cover_form.cover.errors }}
+    <p class="cover-error" id="cover-error" role="status" aria-live="polite"></p>
+    <figure id="cover-preview" hidden><img alt="New cover preview" width="160" height="160"><figcaption class="hint">New cover preview</figcaption></figure>
+    <p class="hint">Updates the cover on the library and podcast page. Existing audio stays the same.</p>
+    <button class="primary" name="action" value="cover">Save cover</button>
+  </form>{% endif %}
+</section>

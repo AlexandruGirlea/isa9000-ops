@@ -1,0 +1,187 @@
+name: ${ISA9000_COMPOSE_PROJECT_NAME:-isa9000}
+
+x-image: &image
+  image: services:local
+  build:
+    context: .
+    dockerfile: services/Dockerfile
+    target: development
+
+x-database: &database
+  DATABASE_URL: postgresql://isa9000:local-demo-only@postgres:5432/isa9000
+  ISA9000_DJANGO_SECRET_KEY: ${ISA9000_DJANGO_SECRET_KEY:?Run python3 local/configure.py first}
+  ISA9000_ADMIN_GROUP_ID: ${ISA9000_ADMIN_GROUP_ID:-}
+
+x-storage: &storage
+  ISA9000_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFeqCnf2ZqYzvwSAShm4m7DhEpQNC7QrQkfWZg==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+  ISA9000_STORAGE_PUBLIC_URL: http://localhost:${ISA9000_AZURITE_PORT:-10000}/devstoreaccount1
+
+x-messaging: &messaging
+  ISA9000_SERVICEBUS_CONNECTION_STRING: Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
+  ISA9000_QUEUE: tasks
+  ISA9000_CALLBACK_SECRET: ${ISA9000_CALLBACK_SECRET:?Run python3 local/configure.py first}
+  ISA9000_PAYLOAD_KEY: ${ISA9000_PAYLOAD_KEY:?Run python3 local/configure.py first}
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: isa9000
+      POSTGRES_PASSWORD: local-demo-only
+      POSTGRES_DB: isa9000
+    ports:
+      - 127.0.0.1:${ISA9000_POSTGRES_PORT:-5432}:5432
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U isa9000 -d isa9000]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    command: azurite-blob --blobHost 0.0.0.0 --location /data --silent --skipApiVersionCheck
+    environment:
+      AZURITE_ACCOUNTS: devstoreaccount1:Eby8vdM02xNOcqFeqCnf2ZqYzvwSAShm4m7DhEpQNC7QrQkfWZg==
+    ports:
+      - 127.0.0.1:${ISA9000_AZURITE_PORT:-10000}:10000
+    volumes:
+      - azurite:/data
+
+  servicebus-sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: Y
+      MSSQL_SA_PASSWORD: Local-emulator-only-123!
+      MSSQL_MEMORY_LIMIT_MB: 2048
+    volumes:
+      - servicebus-sql:/var/opt/mssql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD"
+          -C -Q "SELECT 1" -b -o /dev/null
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  servicebus:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.0
+    environment:
+      ACCEPT_EULA: Y
+      SQL_SERVER: servicebus-sql
+      MSSQL_SA_PASSWORD: Local-emulator-only-123!
+      SQL_WAIT_INTERVAL: 5
+    volumes:
+      - ./local/servicebus-config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+    depends_on:
+      servicebus-sql:
+        condition: service_healthy
+
+  initialize:
+    <<: *image
+    command: python /local/initialize.py
+    environment:
+      <<: *storage
+    volumes:
+      - ./local:/local:ro
+    depends_on:
+      azurite:
+        condition: service_started
+      servicebus:
+        condition: service_started
+
+  migrate:
+    <<: *image
+    command: python manage.py migrate --noinput
+    environment:
+      <<: *database
+    volumes:
+      - ./services:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    <<: *image
+    entrypoint: []
+    command: gunicorn -c gunicorn.conf.py --reload core.wsgi
+    environment:
+      <<: [*database, *storage, *messaging]
+      DEBUG: "false"
+      ISA9000_CONFIG: /config/isa9000.toml
+      ISA9000_AUTH: entra
+      ISA9000_LOCAL_TEST_USERS: "true"
+      ISA9000_ENTRA_TENANT_ID: ${ISA9000_ENTRA_TENANT_ID:-}
+      ISA9000_ENTRA_CLIENT_ID: ${ISA9000_ENTRA_CLIENT_ID:-}
+      ISA9000_ENTRA_CLIENT_SECRET: ${ISA9000_ENTRA_CLIENT_SECRET:-}
+      ISA9000_ENTRA_REDIRECT_URI: http://localhost:${ISA9000_WEB_PORT:-8000}/auth/login/aad/callback
+      ISA9000_ALLOWED_HOSTS: localhost,127.0.0.1,web
+      ISA9000_CALLBACK_BASE_URL: http://web:8000
+      ISA9000_DAILY_RUNS_PER_USER: ${ISA9000_DAILY_RUNS_PER_USER:-5}
+      ISA9000_MAX_UPLOAD_MB: ${ISA9000_MAX_UPLOAD_MB:-20}
+      ISA9000_MAX_FILES: ${ISA9000_MAX_FILES:-10}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ""
+    volumes:
+      - ./services:/app
+      - ./config:/config:ro
+      - ${ISA9000_CONFIG_FILE:-./config/isa9000.toml}:/config/isa9000.toml:ro
+    ports:
+      - 127.0.0.1:${ISA9000_WEB_PORT:-8000}:8000
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      initialize:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  worker:
+    <<: *image
+    command: python -m worker
+    restart: always
+    environment:
+      <<: [*storage, *messaging]
+      ISA9000_CLI: ${ISA9000_CLI:-python /app/tests/stub_isa9000.py}
+      ISA9000_CONFIG: /config/isa9000.toml
+      ISA9000_STUB_EXIT: ${ISA9000_STUB_EXIT:-0}
+      ISA9000_CALLBACK_BASE_URL: http://web:8000
+      ISA9000_STUB_STEP_DELAY: ${ISA9000_STUB_STEP_DELAY:-1}
+      ISA9000_AZURE_OPENAI_ENDPOINT: ${ISA9000_AZURE_OPENAI_ENDPOINT:-}
+      ISA9000_AZURE_OPENAI_API_KEY: ${ISA9000_AZURE_OPENAI_API_KEY:-}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ""
+    volumes:
+      - ./services:/app:ro
+      - ./config:/config:ro
+      - ${ISA9000_CONFIG_FILE:-./config/isa9000.toml}:/config/isa9000.toml:ro
+    depends_on:
+      web:
+        condition: service_healthy
+
+  watchdog:
+    <<: *image
+    command: sh -c 'while true; do python manage.py expire_runs; sleep 300; done'
+    environment:
+      <<: *database
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ""
+    volumes:
+      - ./services:/app:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres:
+  azurite:
+  servicebus-sql:

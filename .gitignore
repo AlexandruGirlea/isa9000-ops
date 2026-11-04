@@ -1,0 +1,35 @@
+# Local instructions and build notes for coding agents (Claude Code, Codex)
+CLAUDE.md
+AGENT.md
+AGENTS.md
+BUILD_PROMPT.md
+GOALS.md
+HOSTED_DEPLOYMENT_REPORT.md
+.gstack/
+
+# Describes working attack paths
+vulnerabilities.md
+
+# IDE and OS
+.idea/
+.DS_Store
+
+# Local environment can hold connection strings
+.env
+.env.*
+!.env.example
+isa9000.local.toml
+
+# Pulumi stack settings name our Azure subscription; CI writes them from GitHub
+infra/Pulumi.*.yaml
+!infra/Pulumi.example.yaml
+local/foundry/Pulumi.local.yaml
+
+# Python and tool output
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+services/web/staticfiles/
+node_modules/

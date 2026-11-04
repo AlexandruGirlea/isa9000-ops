@@ -1,0 +1,52 @@
+version = 1
+SPDX-PackageName = "isa9000-ops"
+SPDX-PackageSupplier = "girlea.ro"
+SPDX-PackageDownloadLocation = "https://github.com/AlexandruGirlea/isa9000-ops"
+
+[[annotations]]
+path = "**"
+SPDX-FileCopyrightText = "2026 girlea.ro"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "services/web/app_portal/static/vendor/vditor/**"
+SPDX-FileCopyrightText = "2018-present B3log, b3log.org"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = [
+  "services/web/app_portal/static/vendor/vditor/dist/index.min.js",
+  "services/web/app_portal/static/vendor/vditor/dist/js/lute/lute.min.js",
+]
+SPDX-FileCopyrightText = [
+  "2018-present B3log, b3log.org",
+  "2018 The diff-match-patch Authors",
+  "2013 Richard Musiol",
+  "2009 The Go Authors",
+]
+SPDX-License-Identifier = "MIT AND MulanPSL-2.0 AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause"
+
+[[annotations]]
+path = "services/web/app_portal/static/vendor/vditor/dist/js/highlight.js/**"
+SPDX-FileCopyrightText = "2006 Ivan Sagalaev"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
+path = "services/web/app_portal/static/vendor/vditor/licenses/Lute.txt"
+SPDX-FileCopyrightText = "2018-present B3log"
+SPDX-License-Identifier = "MulanPSL-2.0"
+
+[[annotations]]
+path = "services/web/app_portal/static/vendor/vditor/licenses/diff-match-patch.txt"
+SPDX-FileCopyrightText = "2018 The diff-match-patch Authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "services/web/app_portal/static/vendor/vditor/licenses/GopherJS.txt"
+SPDX-FileCopyrightText = "2013 Richard Musiol"
+SPDX-License-Identifier = "BSD-2-Clause"
+
+[[annotations]]
+path = "services/web/app_portal/static/vendor/vditor/licenses/Go.txt"
+SPDX-FileCopyrightText = "2009 The Go Authors"
+SPDX-License-Identifier = "BSD-3-Clause"

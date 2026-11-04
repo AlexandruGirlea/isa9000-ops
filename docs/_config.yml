@@ -1,0 +1,40 @@
+title: isa9000-ops
+description: Your company's audio knowledge base, in your Azure and under your brand
+remote_theme: just-the-docs/just-the-docs@v0.10.1
+
+url: https://alexandrugirlea.github.io
+baseurl: /isa9000-ops
+
+color_scheme: light
+search_enabled: true
+heading_anchors: true
+back_to_top: true
+back_to_top_text: "Back to top"
+
+mermaid:
+  version: "11.12.2"
+
+aux_links:
+  GitHub:
+    - "https://github.com/AlexandruGirlea/isa9000-ops"
+  isa9000 engine:
+    - "https://alexandrugirlea.github.io/isa9000/"
+  Hear Dev Stories:
+    - "https://devstories.eu"
+aux_links_new_tab: true
+
+footer_content: 'Powered by <a href="https://github.com/AlexandruGirlea/isa9000">isa9000</a>. Developed by Isabela and Alex @ <a href="https://girlea.ro">girlea.ro</a>.'
+
+plugins:
+  - jekyll-remote-theme
+  - jekyll-relative-links
+
+relative_links:
+  enabled: true
+  collections: false
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

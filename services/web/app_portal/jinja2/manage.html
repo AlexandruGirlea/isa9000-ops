@@ -1,0 +1,60 @@
+{% extends "workspace.html" %}
+{% block meta %}{{ super() }}<link rel="stylesheet" href="/static/vendor/vditor/dist/index.css">{% endblock %}
+{% block extra_css %}{{ super() }}
+.generation-workspace #podcast-settings, .generation-workspace #podcast-cover { scroll-margin-top: 120px; }
+.generation-workspace .cover-current, .generation-workspace #cover-preview img { display: block; width: 160px; height: 160px; max-width: 100%; object-fit: contain; border-radius: 10px; margin: 12px 0; }
+.generation-workspace #cover-form label { display: block; font-weight: 600; margin: 16px 0 8px; }
+.generation-workspace #cover-preview[hidden] { display: none; }
+.generation-workspace .cover-error { color: var(--bad); font-size: .9rem; margin-top: 8px; }
+{% endblock %}
+{% block content %}
+<section class="section bg-gray"><div class="container">
+<nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><a href="/libraries/{{ course.group_id }}/">{{ course.group }}</a><span>›</span>{% if course.status == 'ready' %}<a href="/courses/{{ course.id }}/">{{ course.title }}</a><span>›</span>{% endif %}<span>Manage</span></nav>
+<div class="portal-heading"><h1>{{ course.title or 'Untitled podcast' }}</h1>{% if course.status == 'ready' %}<a class="px-btn px-btn-theme" href="/courses/{{ course.id }}/"><i class="bi bi-play-circle" aria-hidden="true"></i> Listen</a>{% endif %}</div>
+<div class="generation-workspace">
+{% if active_run %}<section class="card run-callout"><div><h2>{{ 'Recording your approved transcripts' if active_run.task == 'record' else 'A run is in progress' }}</h2><p class="hint">{{ 'Audio will be published to this library when recording finishes.' if active_run.task == 'record' else 'Follow progress while isa9000 works on this podcast.' }}</p></div><a class="button-link" href="/runs/{{ active_run.id }}/">Follow progress <i class="bi bi-arrow-right" aria-hidden="true"></i></a></section>
+{% elif course.status == 'needs_review' %}{% include "review_actions.html" %}{% endif %}
+<div class="workspace-grid">
+  <section class="card" id="episodes"><div class="card-head"><h2>Episodes</h2><span class="hint">{{ episodes|length }} {{ 'episode' if episodes|length == 1 else 'episodes' }}</span></div>
+    <p class="hint">Open each transcript to read or edit its wording. Edits need approval before new audio is recorded.{% if active %} Editing is locked while this run is in progress.{% endif %}</p>
+    {% for episode in episodes %}<article class="ep">
+      <div class="eph"><span class="num">{{ '%02d'|format(episode.number|int) }}</span><h3 class="t" style="font-size:1rem">{{ episode.title }}</h3></div>
+      {% if episode.get('edited') %}<p class="hint">Edited since AI review</p>{% elif episode.get('score') is not none %}<p class="hint">AI review: {{ episode.score }}/10</p>{% endif %}
+      {% if episode.get('issues') or episode.get('unverified') %}<details class="episode-notes"><summary>{{ 'Earlier draft notes' if episode.get('edited') else 'Review notes' }}{% if episode.get('unverified') %} · {{ episode.unverified|length }} unverified {{ 'claim' if episode.unverified|length == 1 else 'claims' }}{% endif %}</summary>
+        {% if episode.get('issues') %}<p class="hint">{{ episode.issues }}</p>{% endif %}
+        {% for issue in episode.get('unverified', []) %}<p class="warn">{{ issue }}</p>{% endfor %}
+      </details>{% endif %}
+      <div class="row-actions">{% if episode.transcript_url %}<button type="button" class="ghost review-transcript" data-transcript-url="{{ episode.transcript_url }}" data-episode-title="{{ episode.title }}">Read transcript <i class="bi bi-file-text" aria-hidden="true"></i></button>{% endif %}
+      {% if not active %}<form method="post">{{ csrf_input }}<input type="hidden" name="episode" value="{{ episode.number }}"><button class="ghost danger episode-delete" name="action" value="delete_episode" data-confirm="Delete this episode?">Delete episode</button></form>{% endif %}</div>
+    </article>{% else %}<p class="hint">Episodes will appear when the transcripts are ready.</p>{% endfor %}
+  </section>
+  <div class="workspace-column">
+    <section class="card" id="podcast-settings"><h2>Podcast settings</h2>
+      <details class="wording-settings" open><summary>Edit podcast details</summary>
+      {% if active %}<p class="hint">You can update podcast details when the current run finishes.</p>
+      {% else %}<form method="post">{{ csrf_input }}
+        <div class="podcast-fields">
+          <div><label for="id_title">Podcast title</label>{{ title_form.title }}{{ title_form.title.errors }}<p class="hint" id="title-help">Keep it easy to scan. Up to {{ title_form.title.field.max_length }} characters.</p></div>
+          {% set description_field = title_form.description %}
+          {% set description_preview_url = '/courses/' ~ course.id ~ '/description-preview/' %}
+          {% include "description_field.html" %}
+        </div>
+        <p class="hint">Updates the library and podcast page. Existing audio and cover artwork stay the same.</p>
+        <button class="primary" name="action" value="rename">Save details</button>
+      </form>{% endif %}</details>
+    </section>
+    {% include "cover_settings.html" %}
+    {% if course.generation_settings %}<section class="card"><h2>Voice settings</h2>
+      <dl class="settings-summary"><dt>Narrator</dt><dd>{{ course.generation_settings.name }}</dd><dt>Voice</dt><dd>{{ course.generation_settings.voice }}</dd><dt>Quality</dt><dd>{{ course.generation_settings.quality|capitalize }}</dd></dl>
+      {% if course.generation_settings.pronunciations %}<details class="wording-settings"><summary>Pronunciations</summary><dl class="settings-summary">{% for term, spoken in course.generation_settings.pronunciations.items() %}<dt>{{ term }}</dt><dd>{{ spoken }}</dd>{% endfor %}</dl></details>{% endif %}
+      <details class="wording-settings"><summary>Greeting and endings</summary><dl class="settings-summary"><dt>Greeting</dt><dd>{{ course.generation_settings.greeting or 'None' }}</dd><dt>Ending</dt><dd>{{ course.generation_settings.ending or 'None' }}</dd><dt>Final ending</dt><dd>{{ course.generation_settings.final_ending or 'None' }}</dd></dl></details>
+      <p class="hint" style="margin-top:16px">Saved with this podcast and used when recording.</p>
+    </section>{% endif %}
+    <section class="card"><details><summary>Run history · {{ runs|length }}</summary>
+      {% for run in runs %}<a class="history-item" href="/runs/{{ run.id }}/"><strong>{{ run.get_task_display() }} · {{ run.get_status_display() }}</strong><span class="hint">{{ run.created.strftime('%d %B %Y, %H:%M') }} UTC</span></a>{% else %}<p class="hint">No runs.</p>{% endfor %}
+    </details></section>
+    {% if not active %}<section class="card"><details><summary>Delete podcast</summary><p class="hint">Removes this podcast, its episodes and its files from the library.</p><form method="post">{{ csrf_input }}<button class="ghost danger" name="action" value="delete_course" data-confirm="Delete this podcast and its files?">Delete podcast</button></form></details></section>{% endif %}
+  </div>
+</div></div></div></section>
+{% endblock %}
+{% block extra_js %}{{ super() }}{% include "description_editor.html" %}{% include "cover_editor.html" %}{% include "transcript_dialog.html" %}{% endblock %}
