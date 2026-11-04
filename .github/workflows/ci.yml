@@ -26,7 +26,7 @@ jobs:
         working-directory: infra
       - run: make up && make test && make check
       - run: docker build --file services/Dockerfile --tag services:production .
-      - uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: services:production
           severity: HIGH,CRITICAL
