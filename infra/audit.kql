@@ -1,0 +1,11 @@
+AppTraces
+| where TimeGenerated > ago(24h)
+| where tostring(Properties.event) == "audit"
+| project TimeGenerated, AppRoleName, Action = tostring(Properties.action),
+    Outcome = tostring(Properties.outcome), Actor = tostring(Properties.actor_id),
+    TargetType = tostring(Properties.target_type), Target = tostring(Properties.target_id),
+    Fields = tostring(Properties.changed_fields), Course = tostring(Properties.course_id),
+    Run = tostring(Properties.run_id), Correlation = tostring(Properties.correlation_id),
+    OperationCorrelation = tostring(Properties.operation_correlation_id),
+    Route = tostring(Properties.route), Status = toint(Properties.status_code)
+| order by TimeGenerated desc

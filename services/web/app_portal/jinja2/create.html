@@ -1,0 +1,158 @@
+{% extends "workspace.html" %}
+{% block meta %}{{ super() }}<link rel="stylesheet" href="/static/vendor/vditor/dist/index.css">{% endblock %}
+{% block content %}
+<section class="section bg-gray"><div class="container">
+<nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><a href="/libraries/{{ group.object_id }}/">{{ group }}</a><span>›</span><span>New podcast</span></nav>
+<div class="portal-heading"><h1>New podcast</h1><a class="portal-history-link" href="/runs/">History <i class="bi bi-clock-history" aria-hidden="true"></i></a></div>
+<div class="generation-workspace">
+<form id="course-form" method="post" enctype="multipart/form-data">
+{{ csrf_input }}{{ form.non_field_errors() }}
+<div class="workspace-grid">
+  <div class="workspace-column">
+    <section class="card">
+      <h2><span class="step">1</span>Podcast details</h2>
+      <p class="hint">Give your podcast a name your team will recognize.</p>
+      <div class="podcast-fields">
+        <div><label for="id_title">Podcast title <span class="hint">Required</span></label>
+          {{ form.title }}{{ form.title.errors }}
+          <p class="hint" id="title-help">Keep it easy to scan. Up to {{ form.title.field.max_length }} characters.</p>
+        </div>
+        {% set description_field = form.description %}
+        {% set description_preview_url = '/libraries/' ~ group.pk ~ '/description-preview/' %}
+        {% include "description_field.html" %}
+      </div>
+      <div class="podcast-brief">
+        <h3><label for="id_request">What should people learn?</label></h3>
+        <p class="hint">Describe your audience, what they should take away, and the length you have in mind.</p>
+        {{ form.request }}{{ form.request.errors }}
+      </div>
+    </section>
+    <section class="card">
+      <h2><span class="step">2</span>Sources</h2>
+      <p class="hint">Add public web links or upload your source documents. Use uploads for material behind your company's sign-in.</p>
+      <div id="links-fallback"><label for="id_links">Source links, one per line</label>{{ form.links }}</div>
+      <div id="source-editor" hidden>
+        <label class="visually-hidden" for="source">Source URL</label>
+        <div class="add"><input id="source" type="text" inputmode="url" placeholder="https://…" autocomplete="off" maxlength="4096"><button id="add-source" type="button" class="ghost">Add</button></div>
+        <ul id="sources" aria-live="polite"></ul>
+        <p id="source-error" class="warn" role="alert" hidden>Add at most 20 source links.</p>
+      </div>
+      {{ form.links.errors }}
+      <div class="upload-area"><label for="id_uploads"><i class="bi bi-upload" aria-hidden="true"></i> Upload documents</label>
+        {{ form.uploads }}
+        <p class="hint" style="margin:10px 0 0">PDF, TXT, MD or HTML · Up to {{ max_files }} files, {{ max_upload_mb }} MB each</p>
+      </div>
+      {{ form.uploads.errors }}<p id="upload-error" class="warn" role="alert" hidden></p>
+      <label class="toggle">{{ form.follow_links }} Also read pages linked from each source</label>
+      {{ form.follow_links.errors }}
+    </section>
+  </div>
+  <div class="workspace-column">
+    <section class="card">
+      <h2><span class="step">3</span>Voice and wording</h2>
+      <p class="hint">These choices apply to this podcast, including later recording and retries.</p>
+      <div class="fields">
+        <label for="id_name">Narrator name{{ form.name }}{{ form.name.errors }}</label>
+        <label for="id_voice">Voice{{ form.voice }}{{ form.voice.errors }}</label>
+        <label for="id_quality">Quality{{ form.quality }}{{ form.quality.errors }}</label>
+      </div>
+      <div class="setting-field"><label for="id_pronunciations">Pronunciations</label>
+        <p class="hint">Help the narrator say product names and abbreviations. One per line: word = how to say it.</p>
+        {{ form.pronunciations }}{{ form.pronunciations.errors }}
+      </div>
+      <details class="wording-settings" {% if form.greeting.errors or form.ending.errors or form.final_ending.errors %}open{% endif %}>
+        <summary>Greeting and endings</summary>
+        <p class="hint">Use {narrator}, {brand}, {podcast}, {episode}, {episodes}, {title} and {powered_by}.</p>
+        <div class="fields">
+          <label for="id_greeting">Episode greeting{{ form.greeting }}{{ form.greeting.errors }}</label>
+          <label for="id_ending">Episode ending{{ form.ending }}{{ form.ending.errors }}</label>
+          <label for="id_final_ending">Final episode ending{{ form.final_ending }}{{ form.final_ending.errors }}</label>
+        </div>
+      </details>
+    </section>
+    <section class="card">
+      <h2><span class="step">4</span>Ready to create</h2>
+      <p class="hint">Library: <strong>{{ group }}</strong>. Ready audio is available to members of this group.</p>
+      <label class="toggle">{{ form.text_only }} Review transcripts before recording</label>
+      {{ form.text_only.errors }}
+      <p class="hint" id="review-hint">Generate audio now, or check the transcripts first and record when you are ready.</p>
+      <button id="create" class="primary" type="submit">Create podcast</button>
+      <p class="hint" id="create-hint" style="margin:12px 0 0">Add a title, learning brief and sources to get started.</p>
+    </section>
+    <section class="card">
+      <h2>What happens next</h2>
+      <ol class="steps"><li class="st pending"><span class="ic">1</span><span class="lb">Plan the podcast from your sources</span></li><li class="st pending"><span class="ic">2</span><span class="lb">Write, fact-check and review each episode</span></li><li class="st pending"><span class="ic">3</span><span id="final-step" class="lb">Record and share with your library</span></li></ol>
+      <p class="hint">You can leave and return by opening the podcast in your library or History.</p>
+    </section>
+  </div>
+</div></form></div>
+</div></section>
+{% endblock %}
+{% block extra_js %}{{ super() }}{% include "description_editor.html" %}
+<script nonce="{{ request.csp_nonce }}">
+(() => {
+  const form = document.getElementById('course-form');
+  const input = document.getElementById('source');
+  const links = document.getElementById('id_links');
+  const files = document.getElementById('id_uploads');
+  const create = document.getElementById('create');
+  const review = document.getElementById('id_text_only');
+  const sources = new Map();
+  document.getElementById('links-fallback').hidden = true;
+  document.getElementById('source-editor').hidden = false;
+  function refresh() {
+    links.value = [...sources.keys()].join('\n');
+    const invalidFiles = files.files.length > {{ max_files }} || [...files.files].some(file => file.size > {{ max_upload_mb }} * 1024 * 1024 || !/\.(pdf|txt|md|html)$/i.test(file.name));
+    const error = document.getElementById('upload-error');
+    error.hidden = !invalidFiles;
+    error.textContent = 'Choose up to {{ max_files }} PDF, TXT, MD or HTML files, {{ max_upload_mb }} MB each.';
+    create.disabled = !document.getElementById('id_title').value.trim() || !document.getElementById('id_request').value.trim() || !(sources.size || files.files.length) || [...sources.values()].some(source => !source.ok) || invalidFiles || !!input.value.trim();
+    document.getElementById('create-hint').textContent = create.disabled ? 'Add a title, learning brief and valid sources to continue.' : 'Ready to create. You can follow progress on the next screen.';
+    create.textContent = review.checked ? 'Create transcripts' : 'Create podcast';
+    document.getElementById('review-hint').textContent = review.checked ? 'The transcripts stay private to creators until you choose to record.' : 'Audio is shared with this library once generation and checks finish.';
+    document.getElementById('final-step').textContent = review.checked ? 'Review transcripts, then choose when to record' : 'Record and share with your library';
+  }
+  async function addSource(value) {
+    value = value.trim();
+    if (!value || sources.has(value)) return;
+    if (sources.size >= 20) { document.getElementById('source-error').hidden = false; return; }
+    document.getElementById('source-error').hidden = true;
+    const source = {ok: false};
+    sources.set(value, source);
+    const row = document.createElement('li');
+    row.innerHTML = '<span class="dot"></span><span class="src"></span><span class="tag"></span><button type="button" class="x" aria-label="Remove source">×</button>';
+    row.querySelector('.src').textContent = value;
+    row.querySelector('.src').title = value;
+    row.querySelector('.tag').textContent = 'Checking…';
+    row.querySelector('button').addEventListener('click', () => { sources.delete(value); row.remove(); refresh(); });
+    document.getElementById('sources').append(row);
+    refresh();
+    try {
+      const response = await fetch('/libraries/{{ group.object_id }}/check/', {method: 'POST', headers: {'X-CSRFToken': form.elements.csrfmiddlewaretoken.value}, body: new URLSearchParams({source: value})});
+      if (!response.ok) throw new Error('Unable to check. Remove the link and try again.');
+      const result = await response.json();
+      source.ok = result.ok;
+      row.className = result.ok ? 'ok' : 'bad';
+      row.querySelector('.tag').textContent = result.ok ? 'Valid URL' : 'Invalid URL';
+      row.querySelector('.tag').title = result.detail;
+      if (!result.ok) { const detail = document.createElement('span'); detail.className = 'warn'; detail.textContent = result.detail; row.after(detail); row.querySelector('button').addEventListener('click', () => detail.remove()); }
+    } catch (error) { row.className = 'bad'; row.querySelector('.tag').textContent = error.message; }
+    refresh();
+  }
+  function addInput() { const value = input.value; input.value = ''; value.split(/\r?\n/).forEach(addSource); refresh(); }
+  document.getElementById('add-source').addEventListener('click', addInput);
+  input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addInput(); } });
+  input.addEventListener('paste', event => { const value = event.clipboardData.getData('text'); if (/\r?\n/.test(value)) { event.preventDefault(); value.split(/\r?\n/).forEach(addSource); } });
+  input.addEventListener('input', refresh);
+  document.getElementById('id_request').addEventListener('input', refresh);
+  document.getElementById('id_title').addEventListener('input', refresh);
+  files.addEventListener('change', refresh);
+  review.addEventListener('change', refresh);
+  const initial = links.value;
+  initial.split(/\r?\n/).forEach(addSource);
+  refresh();
+  form.querySelector('[aria-invalid="true"]')?.focus();
+  form.addEventListener('submit', event => { if (create.disabled) { event.preventDefault(); return; } create.disabled = true; create.textContent = 'Starting…'; });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,6 @@
+name: isa9000-local-foundry
+description: Foundry models for the local isa9000 application
+runtime:
+  name: python
+  options:
+    virtualenv: ../../infra/.venv

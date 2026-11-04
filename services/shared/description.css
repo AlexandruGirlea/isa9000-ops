@@ -1,0 +1,22 @@
+.markdown-body { overflow-wrap: anywhere; line-height: 1.7; }
+.markdown-body > :first-child { margin-top: 0; }
+.markdown-body > :last-child { margin-bottom: 0; }
+.markdown-body p { margin: 0 0 12px; }
+.markdown-body :is(h1, h2, h3, h4, h5, h6) { font-size: 1.15rem; font-weight: 700; line-height: 1.5; margin: 20px 0 10px; }
+.markdown-body :is(ul, ol) { padding-left: 1.5em; margin: 0 0 12px; }
+.markdown-body li { margin: 4px 0; }
+.markdown-body a { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.markdown-body a:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.markdown-body blockquote { padding-left: 16px; border-left: 3px solid currentColor; margin: 12px 0; }
+.markdown-body pre { padding: 12px; background: var(--gray-bg); border-radius: 8px; white-space: pre-wrap; }
+.markdown-body code { color: inherit; font-size: .9em; }
+.markdown-body img { max-width: 100%; height: auto; }
+.markdown-body table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 12px 0; }
+.markdown-body :is(th, td) { padding: 8px 12px; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+.markdown-body .contains-task-list { list-style: none; padding-left: 0; }
+.markdown-body input[type="checkbox"] { width: auto; display: inline-block; margin-right: 6px; }
+.markdown-body .footnotes { font-size: .9em; }
+[data-theme="dark"] .markdown-body a, .podcast-hero .markdown-body a { color: var(--primary-light); }
+.podcast-hero .markdown-body { color: rgba(255,255,255,.85); font-size: 1.05rem; }
+.podcast-hero .markdown-body p { color: inherit; }
+.podcast-hero .markdown-body pre { background: rgba(255,255,255,.08); }

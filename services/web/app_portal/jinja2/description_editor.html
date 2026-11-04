@@ -1,0 +1,108 @@
+<script src="/static/vendor/vditor/dist/index.min.js"></script>
+<script nonce="{{ request.csp_nonce }}">
+(() => {
+  const field = document.querySelector('[data-description-preview]');
+  if (!field || !window.Vditor) return;
+  const input = field.querySelector('textarea');
+  const savedValue = input.value;
+  const mount = field.querySelector('#description-editor');
+  const status = field.querySelector('[data-description-status]');
+  const dark = () => document.documentElement.dataset.theme === 'dark';
+  let editor;
+  mount.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (button) button.type = 'button';
+  }, true);
+  mount.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault();
+  }, true);
+  function sync(value) {
+    input.value = value;
+    status.textContent = value.length > input.maxLength ? 'Description is limited to 10,000 characters.' : '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  mount.hidden = false;
+  editor = new Vditor(mount, {
+    cdn: '/static/vendor/vditor', lang: 'en_US', mode: 'wysiwyg',
+    theme: dark() ? 'dark' : 'classic', value: '',
+    placeholder: 'What will listeners learn? Add useful links and reference material.',
+    height: 420, minHeight: 240, cache: { enable: false },
+    counter: { enable: true, max: input.maxLength }, resize: { enable: true },
+    toolbarConfig: { pin: false },
+    toolbar: ['headings', 'bold', 'italic', 'strike', 'link', '|', 'list', 'ordered-list',
+      'check', 'outdent', 'indent', '|', 'quote', 'line', 'code', 'inline-code', 'table',
+      '|', 'undo', 'redo', '|', 'edit-mode', 'both', 'preview', 'fullscreen'],
+    link: { click: element => {
+      const url = element.getAttribute('href') || '';
+      if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener,noreferrer');
+    } },
+    upload: { handler: () => 'Use an image hosted by this site in Markdown mode.' },
+    preview: {
+      delay: 350, actions: [], hljs: { enable: false },
+      markdown: { sanitize: true, inlineMath: false, mathBlockPreview: false, codeBlockPreview: false },
+      render: { media: { enable: false } },
+      theme: { current: dark() ? 'dark' : 'light', path: '/static/vendor/vditor/dist/css/content-theme' },
+      transform: () => '<p>Loading preview…</p>',
+      parse: async element => {
+        const markdown = editor.getValue();
+        const preview = element.querySelector('.vditor-reset');
+        try {
+          const response = await fetch(field.dataset.descriptionPreview, {
+            method: 'POST', credentials: 'same-origin', cache: 'no-store',
+            headers: { 'X-CSRFToken': input.form.querySelector('[name=csrfmiddlewaretoken]').value },
+            body: new URLSearchParams({ description: markdown }),
+          });
+          if (!response.ok || response.redirected) throw new Error();
+          const data = await response.json();
+          if (typeof data.html !== 'string') throw new Error();
+          if (markdown !== editor.getValue()) return;
+          preview.innerHTML = data.html;
+          preview.classList.add('markdown-body');
+        } catch {
+          if (markdown === editor.getValue()) preview.textContent = 'Preview is unavailable. Your edits are safe; return to editing and try again.';
+        }
+      },
+    },
+    input: sync,
+    after: () => {
+      const lute = editor.vditor.lute;
+      const literalHTML = (node, entering, block = false) => {
+        const text = entering ? Lute.EscapeHTMLStr(node.TokensStr()) : '';
+        return [entering && block ? `<p data-block="0">${text}</p>` : text, Lute.WalkContinue];
+      };
+      const html = {
+        renderHTMLBlock: (node, entering) => literalHTML(node, entering, true),
+        renderInlineHTML: literalHTML,
+      };
+      lute.SetJSRenderers({ renderers: {
+        Md2VditorDOM: html, Md2VditorIRDOM: html,
+        HTML2VditorDOM: html, HTML2VditorIRDOM: html,
+      } });
+      // Lute's Spin methods bypass custom renderers; keep typing on the same safe path.
+      for (const suffix of ['DOM', 'IRDOM']) {
+        lute['SpinVditor' + suffix] = value => lute['Md2Vditor' + suffix](
+          lute['Vditor' + suffix + '2Md'](value.replaceAll('<wbr>', Lute.Caret)),
+        ).replaceAll(Lute.Caret, '<wbr>');
+      }
+      editor.setValue(savedValue, true);
+      input.hidden = true;
+      mount.querySelectorAll('[contenteditable="true"], textarea').forEach(area => {
+        area.setAttribute('role', 'textbox');
+        area.setAttribute('aria-label', 'Description');
+        area.setAttribute('aria-multiline', 'true');
+        area.setAttribute('aria-describedby', 'description-help');
+      });
+      mount.dataset.ready = 'true';
+      new MutationObserver(() => editor.setTheme(dark() ? 'dark' : 'classic', dark() ? 'dark' : 'light'))
+        .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    },
+  });
+  input.form.addEventListener('submit', event => {
+    sync(editor.getValue());
+    if (input.value.length > input.maxLength) {
+      event.preventDefault();
+      editor.focus();
+    }
+  });
+})();
+</script>

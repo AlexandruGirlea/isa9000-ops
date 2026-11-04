@@ -1,0 +1,42 @@
+# Mocked test fixture; versions, SKUs and capacities are synthetic, not deployment settings.
+config:
+  azure-native:subscriptionId: 00000000-0000-0000-0000-000000000000
+  azure-native:location: eastus2
+  isa9000:environment: dev
+  isa9000:resourceGroup: rg-isa9000-dev
+  isa9000:createResourceGroup: false
+  isa9000:imageTag: 0.1.0
+  isa9000:ingress: public
+  isa9000:authApp: create
+  isa9000:groupClaims: ApplicationGroup
+  isa9000:foundry: create
+  isa9000:models:
+    - role: text
+      name: gpt-6.1-sol
+      model: gpt-6.1-sol
+      version: MOCK-VERSION
+      format: OpenAI
+      sku: MOCK-SKU
+      capacity: 100
+    - role: image
+      name: gpt-image-2.5-sunburst
+      model: gpt-image-2.5-sunburst
+      version: MOCK-VERSION
+      format: OpenAI
+      sku: MOCK-SKU
+      capacity: 6
+    - role: transcribe
+      name: gpt-transcribe
+      model: gpt-transcribe
+      version: MOCK-VERSION
+      format: OpenAI
+      sku: MOCK-SKU
+      capacity: 50
+  isa9000:workerMaxExecutions: 3
+  isa9000:workerPollingSeconds: 10
+  isa9000:webMinReplicas: 0
+  isa9000:dailyRunsPerUser: 5
+  isa9000:maxUploadMb: 20
+  isa9000:maxFiles: 10
+  isa9000:logRetentionDays: 30
+  isa9000:budgetMonthly: 100

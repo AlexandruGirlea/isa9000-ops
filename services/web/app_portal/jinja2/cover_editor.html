@@ -1,0 +1,82 @@
+<script nonce="{{ request.csp_nonce }}">
+(() => {
+  const form = document.getElementById('cover-form');
+  if (!form) return;
+  const input = form.elements.cover;
+  const error = document.getElementById('cover-error');
+  const preview = document.getElementById('cover-preview');
+  const button = form.querySelector('button[type="submit"], button[name="action"]');
+  let previewUrl = '';
+  let version = 0;
+  button.disabled = true;
+  input.addEventListener('change', async () => {
+    const selected = ++version;
+    button.disabled = true;
+    input.setCustomValidity('');
+    error.textContent = '';
+    preview.hidden = true;
+    preview.querySelector('img').removeAttribute('src');
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = '';
+    const file = input.files[0];
+    if (!file) return;
+    let url = '';
+    try {
+      if (file.size > Number(input.dataset.maxBytes)) throw new Error('Use an image of at most 5 MiB.');
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || !/\.(jpe?g|png|webp)$/i.test(file.name)) {
+        throw new Error('Use a JPEG, PNG or WebP image.');
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const header = String.fromCharCode(...bytes.slice(0, 12));
+      const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+      const png = header.startsWith('\x89PNG\r\n\x1a\n');
+      const webp = header.startsWith('RIFF') && header.slice(8) === 'WEBP';
+      if (!(jpeg && file.type === 'image/jpeg') && !(png && file.type === 'image/png') && !(webp && file.type === 'image/webp')) {
+        throw new Error('This file is not a JPEG, PNG or WebP image.');
+      }
+      if (png || webp) {
+        const view = new DataView(bytes.buffer);
+        const end = webp ? view.getUint32(4, true) + 8 : bytes.length;
+        if (end > bytes.length) throw new Error('This image cannot be read. Choose a valid image.');
+        let complete = false;
+        let offset = png ? 8 : 12;
+        for (; offset + 8 <= end;) {
+          const kind = String.fromCharCode(...bytes.slice(offset + (png ? 4 : 0), offset + (png ? 8 : 4)));
+          if (['acTL', 'ANIM', 'ANMF'].includes(kind)) throw new Error('Use a still image; animations are not supported.');
+          const length = view.getUint32(offset + (png ? 0 : 4), webp);
+          offset += png ? length + 12 : length + 8 + length % 2;
+          if (offset > end) throw new Error('This image cannot be read. Choose a valid image.');
+          if (png && kind === 'IEND') { complete = length === 0; break; }
+        }
+        if (!(png ? complete : offset === end)) throw new Error('This image cannot be read. Choose a valid image.');
+      }
+      if (selected !== version) return;
+      url = URL.createObjectURL(file);
+      const image = new Image();
+      image.src = url;
+      try { await image.decode(); } catch { throw new Error('This image cannot be read. Choose a valid image.'); }
+      if (selected !== version) { URL.revokeObjectURL(url); return; }
+      const width = image.naturalWidth;
+      if (width !== image.naturalHeight || width < Number(input.dataset.minSide) || width > Number(input.dataset.maxSide)) {
+        throw new Error('Use a square image between 256 and 4096 pixels on each side.');
+      }
+      previewUrl = url;
+      preview.querySelector('img').src = url;
+      preview.hidden = false;
+      button.disabled = false;
+    } catch (problem) {
+      if (url) URL.revokeObjectURL(url);
+      if (selected !== version) return;
+      input.setCustomValidity(problem.message);
+      error.textContent = problem.message;
+    }
+  });
+  form.addEventListener('submit', event => {
+    if (button.disabled) { event.preventDefault(); return; }
+    button.disabled = true;
+    const action = document.createElement('input');
+    action.type = 'hidden'; action.name = 'action'; action.value = 'cover';
+    form.append(action);
+  });
+})();
+</script>

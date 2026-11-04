@@ -1,0 +1,23 @@
+# Copy to Pulumi.dev.yaml, Pulumi.test.yaml or Pulumi.prod.yaml (git-ignored) and fill in.
+# The deploy workflow writes that file from the environment's PULUMI_STACK_CONFIG variable.
+config:
+  azure-native:subscriptionId: YOUR-SUBSCRIPTION-ID
+  azure-native:location: YOUR-REGION
+  isa9000:environment: dev
+  isa9000:resourceGroup: rg-company-audio-dev
+  isa9000:createResourceGroup: false
+  isa9000:ingress: public
+  isa9000:imageTag: "sha256:YOUR-PUBLISHED-IMAGE-DIGEST"
+  isa9000:alertEmail: audio-operations@example.com
+  isa9000:authApp: create
+  isa9000:groupClaims: ApplicationGroup
+  isa9000:foundry:
+    endpoint: https://YOUR-RESOURCE.cognitiveservices.azure.com/
+    resourceId: /subscriptions/YOUR-SUBSCRIPTION-ID/resourceGroups/YOUR-AI-GROUP/providers/Microsoft.CognitiveServices/accounts/YOUR-RESOURCE
+  isa9000:models:
+    - role: text
+      name: gpt-6.1-sol
+    - role: image
+      name: gpt-image-2.5-sunburst
+    - role: transcribe
+      name: gpt-transcribe
