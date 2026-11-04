@@ -48,7 +48,7 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58
+      - uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d
       - name: Deploy
         working-directory: infra
         run: |

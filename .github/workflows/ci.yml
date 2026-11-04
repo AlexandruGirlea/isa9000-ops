@@ -69,7 +69,7 @@ jobs:
         env:
           STACK_CONFIG: ${{ vars.PULUMI_STACK_CONFIG }}
         run: test -n "$STACK_CONFIG" && printf '%s\n' "$STACK_CONFIG" > infra/Pulumi.dev.yaml
-      - uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58
+      - uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d
         with:
           command: preview
           stack-name: dev
