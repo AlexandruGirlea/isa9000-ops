@@ -1,0 +1,63 @@
+{% extends "workspace.html" %}
+{% block extra_css %}{{ super() }}
+.history-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.history-table th { text-align: left; color: var(--text-muted-custom); font-weight: 600; }
+.history-table th, .history-table td { padding: 16px 12px; border-bottom: 1px solid var(--card-border); vertical-align: top; }
+.history-table td:first-child { width: 40%; }
+.history-table a { color: var(--primary); text-decoration: none; font-weight: 600; }
+.history-table a:hover { text-decoration: underline; }
+.history-table .history-action { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+.history-table .history-status { display: inline-block; padding: 5px 12px; border-radius: 999px; font-size: .8rem; font-weight: 600; line-height: 1.5; white-space: nowrap; color: var(--text-muted-custom); background: var(--gray-bg); }
+.history-table .history-status--ready { color: #176b43; background: #e8f5ed; }
+.history-table :is(.history-status--queued, .history-status--running) { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, var(--card-bg)); }
+.history-table .history-status--needs_review { color: #885409; background: #fff4da; }
+.history-table .history-status--failed { color: #a83232; background: #fdecec; }
+[data-theme="dark"] .history-table .history-status--ready { color: #8de4b5; background: #173d2d; }
+[data-theme="dark"] .history-table :is(.history-status--queued, .history-status--running) { color: var(--primary-light); background: color-mix(in srgb, var(--primary-light) 16%, var(--card-bg)); }
+[data-theme="dark"] .history-table .history-status--needs_review { color: #f6d189; background: #49371b; }
+[data-theme="dark"] .history-table .history-status--failed { color: #ffb4b4; background: #492626; }
+.history-table .mobile-meta { display: none; }
+@media (max-width: 575px) {
+  .history-table { font-size: .9rem; }
+  .history-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .history-table tbody { display: block; }
+  .history-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; padding: 16px 0; border-bottom: 1px solid var(--card-border); align-items: center; }
+  .history-table td { padding: 0; border: 0; }
+  .history-table td:first-child { grid-column: 1 / -1; width: auto; overflow-wrap: anywhere; }
+  .history-table td:last-child { text-align: right; }
+  .history-table .history-status { padding: 4px 8px; font-size: .75rem; }
+  .history-table .optional-column { display: none; }
+  .history-table .mobile-meta { display: block; margin-top: 8px; font-size: .75rem; color: var(--text-muted-custom); }
+}
+{% endblock %}
+{% block content %}
+<section class="section bg-gray"><div class="container">
+<nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><span>History</span></nav>
+<div class="portal-heading"><h1>History</h1></div>
+<div class="generation-workspace"><section class="card">
+  <h2>Your podcasts</h2><p class="hint">Newest first. Open a title to listen or continue creating. Check the status and latest activity below.</p>
+  <table class="history-table"><thead><tr><th scope="col">Podcast</th><th scope="col" class="optional-column">Library</th><th scope="col" class="optional-column">Created (UTC)</th><th scope="col">Status</th><th scope="col">Latest activity</th></tr></thead><tbody>
+  {% for course in courses %}
+  {% set run = course.history_runs|first %}
+  {% set status = run.status if run and run.status != 'ready' else course.status %}
+  {% set status_label = {'queued': 'Queued', 'running': 'In progress', 'ready': 'Ready', 'needs_review': 'Needs review', 'failed': 'Failed', 'stopped': 'Stopped', 'draft': 'Draft'}.get(status, 'Draft') %}
+  {% if status == 'needs_review' %}
+    {% set action, destination = 'Review transcripts', '/courses/' ~ course.id ~ '/manage/' %}
+  {% elif run %}
+    {% set action = 'View progress' if status in ('queued', 'running') else 'View result' if status == 'ready' else 'View details' %}
+    {% set destination = '/runs/' ~ run.id ~ '/' %}
+  {% else %}
+    {% set action = 'View podcast' if status == 'ready' else 'Edit podcast' %}
+    {% set destination = '/courses/' ~ course.id ~ '/' if status == 'ready' else '/courses/' ~ course.id ~ '/manage/' %}
+  {% endif %}
+  <tr>
+    <td><a href="/courses/{{ course.id }}/">{{ course.title or 'Podcast in progress' }}</a><span class="mobile-meta">{{ course.group }}<br>{{ course.created.strftime('%d %b %Y, %H:%M') }} UTC</span></td>
+    <td class="optional-column">{{ course.group }}</td><td class="optional-column">{{ course.created.strftime('%d %b %Y, %H:%M') }}</td>
+    <td><span class="history-status history-status--{{ status }}">{{ status_label }}</span></td>
+    <td><a class="history-action" href="{{ destination }}" aria-label="{{ action }}: {{ course.title or 'Untitled podcast' }}">{{ action }} <i class="bi bi-arrow-right" aria-hidden="true"></i></a></td>
+  </tr>{% else %}<tr><td colspan="5">You haven't created any podcasts yet.</td></tr>{% endfor %}
+  </tbody></table>
+</section>
+{% if courses.has_other_pages() %}<nav class="row-actions page-actions" aria-label="History pages">{% if courses.has_previous() %}<a href="?page={{ courses.previous_page_number() }}">Previous</a>{% endif %}<span>Page {{ courses.number }} of {{ courses.paginator.num_pages }}</span>{% if courses.has_next() %}<a href="?page={{ courses.next_page_number() }}">Next</a>{% endif %}</nav>{% endif %}
+</div></div></section>
+{% endblock %}

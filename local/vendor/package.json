@@ -1,0 +1,8 @@
+{
+  "name": "isa9000-vendored-browser-dependencies",
+  "private": true,
+  "description": "Tracks the Vditor distribution vendored under services/web/app_portal/static/vendor; update those files and their NOTICE when upgrading.",
+  "dependencies": {
+    "vditor": "4.0.1"
+  }
+}

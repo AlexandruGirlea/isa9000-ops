@@ -1,0 +1,90 @@
+{% extends "workspace.html" %}
+{% block content %}
+<section class="section bg-gray"><div class="container">
+<nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><a href="/libraries/{{ run.course.group_id }}/">{{ run.course.group }}</a><span>›</span><a href="/courses/{{ run.course_id }}/manage/">{{ run.course.title or 'New podcast' }}</a><span>›</span><span>{{ 'Progress' if active else 'Result' }}</span></nav>
+<div class="portal-heading"><h1>{{ run.course.title or 'Podcast progress' }}</h1></div>
+<div class="generation-workspace">
+{% if active_run and active_run.id != run.id %}<section class="card run-callout"><div><h2>A newer run is in progress</h2><p class="hint">This page shows an earlier run. Follow the current run for the latest updates.</p></div><a class="button-link" href="/runs/{{ active_run.id }}/">Follow current run</a></section>
+{% elif run.status == 'needs_review' and course.status == 'needs_review' and not active_run %}{% include "review_actions.html" %}
+{% elif course.status == 'ready' and run.status != 'ready' %}<section class="card run-callout"><div><h2>This podcast is ready</h2><p class="hint">You are viewing an earlier run.</p></div><a class="button-link" href="/courses/{{ course.id }}/">Listen to podcast</a></section>{% endif %}
+<div class="workspace-grid">
+  <section class="card">
+    <div class="card-head"><h2>{{ 'Progress' if active else 'Result' }}</h2><span id="elapsed" class="hint mono"></span></div>
+    <p id="run-status" class="status" role="status">{{ status_label }}</p>
+    <ol id="steps" class="steps" aria-label="Podcast progress">
+      {% for step in steps %}<li class="st {{ step.status }}"><span class="ic" aria-hidden="true">{{ {'done':'✓', 'failed':'✕', 'stopped':'■', 'skipped':'–', 'waiting':'–'}.get(step.status, '') }}</span><span class="lb">{{ step.label }}</span><span class="dt">{{ step.detail }}</span></li>{% else %}<li class="idle">{% if active %}Waiting for a worker to begin…{% else %}No steps were recorded.{% endif %}</li>{% endfor %}
+    </ol>
+    <pre id="run-error" class="console warn" {% if not run.error %}hidden{% endif %}>{{ run.error }}</pre>
+    <form method="post" class="row-actions page-actions">{{ csrf_input }}
+      {% if active %}<button id="stop-run" class="ghost danger" name="action" value="stop" {% if run.cancel_requested %}disabled{% endif %}>{{ 'Stopping…' if run.cancel_requested else 'Stop' }}</button>{% elif run.status in ['failed','stopped'] and not active_run and course.status != 'ready' %}<button class="ghost" name="action" value="retry"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> {{ 'Review saved transcripts' if review_retry else 'Retry' }}</button>{% endif %}
+      {% if run.status == 'ready' %}<a class="button-link" href="/courses/{{ run.course_id }}/"><i class="bi bi-play-circle" aria-hidden="true"></i> Open podcast</a>{% endif %}
+    </form>
+    {% if active %}<p id="connection-status" class="hint" role="status" style="margin-top:16px">Updates automatically. Reopen this podcast from your library to return here.</p>{% endif %}
+    {% if run.status == 'needs_review' %}<p class="hint" style="margin-top:16px">This run saved transcripts for approval before recording.</p>{% elif run.status == 'failed' %}<p class="hint" style="margin-top:16px">Any saved transcripts are kept for your next attempt.</p>{% endif %}
+  </section>
+  <div class="workspace-column">
+    <section class="card"><h2>Prompt</h2>
+      {% if run.request %}<p>{{ run.request }}</p>{% endif %}
+      <p class="hint">{{ run.get_task_display() }} · {{ run.course.group }}<br>{{ run.created.strftime('%d %B %Y, %H:%M') }} UTC</p>
+      {% if run.generation_settings %}<dl class="settings-summary">
+        <dt>Narrator</dt><dd>{{ run.generation_settings.name }}</dd>
+        <dt>Voice</dt><dd>{{ run.generation_settings.voice }}</dd>
+        <dt>Quality</dt><dd>{{ run.generation_settings.quality|capitalize }}</dd>
+        {% if run.task == 'create' %}<dt>Output</dt><dd>{{ 'Transcripts for review' if run.text_only else 'Audio podcast' }}</dd>{% endif %}
+      </dl>{% endif %}
+      <a class="link-btn" href="/courses/{{ run.course_id }}/manage/">Manage podcast <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+    </section>
+    <section class="card"><h2>Activity</h2><p id="log-empty" class="hint" {% if messages %}hidden{% endif %}>Activity will appear as the podcast is processed.</p>
+      <pre id="run-log" class="console" {% if not messages %}hidden{% endif %}>{% for line in messages %}{{ line }}{{ '\n' }}{% endfor %}</pre>
+      <details><summary>Run details</summary><p class="hint mono" style="margin-top:12px">Reference: {{ run.correlation_id }}</p></details>
+    </section>
+  </div>
+</div></div></div></section>
+{% endblock %}
+{% block extra_js %}<script nonce="{{ request.csp_nonce }}">
+(() => {
+  const started = Date.parse({{ run.created.isoformat()|tojson }});
+  const finished = {% if run.finished %}Date.parse({{ run.finished.isoformat()|tojson }}){% else %}null{% endif %};
+  function clock() { const seconds = Math.max(0, Math.floor(((finished || Date.now()) - started) / 1000)); document.getElementById('elapsed').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; }
+  clock();
+  {% if active %}
+  setInterval(clock, 1000);
+  async function poll() {
+    const connection = document.getElementById('connection-status');
+    try {
+      const response = await fetch(location.pathname, {headers: {Accept: 'application/json'}, cache: 'no-store'});
+      if (!response.ok) throw new Error();
+      const data = await response.json();
+      if (data.status === 'ready') { location.assign('/courses/{{ run.course_id }}/'); return; }
+      if (data.status === 'needs_review') { location.assign('/courses/{{ run.course_id }}/manage/'); return; }
+      if (!['queued', 'running'].includes(data.status)) { location.reload(); return; }
+      document.getElementById('run-status').textContent = data.label;
+      const stop = document.getElementById('stop-run');
+      if (data.cancel_requested) { stop.disabled = true; stop.textContent = 'Stopping…'; }
+      const error = document.getElementById('run-error');
+      error.textContent = data.error; error.hidden = !data.error;
+      const target = document.getElementById('steps');
+      if (data.steps.length) {
+        target.replaceChildren();
+        for (const entry of data.steps) {
+          const li = document.createElement('li'); li.className = 'st ' + entry.status;
+          li.innerHTML = '<span class="ic" aria-hidden="true"></span><span class="lb"></span><span class="dt"></span>';
+          li.querySelector('.ic').textContent = {done: '✓', failed: '✕', stopped: '■', skipped: '–'}[entry.status] || '';
+          li.querySelector('.lb').textContent = entry.label;
+          li.querySelector('.dt').textContent = entry.detail || '';
+          target.append(li);
+        }
+      }
+      const log = document.getElementById('run-log');
+      const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+      log.textContent = data.log.join('\n'); log.hidden = !data.log.length;
+      document.getElementById('log-empty').hidden = !!data.log.length;
+      if (atBottom) log.scrollTop = log.scrollHeight;
+      connection.textContent = 'Live updates · Reopen this podcast from your library to return here.';
+    } catch (_) { connection.textContent = 'Connection interrupted. Reconnecting automatically…'; }
+    setTimeout(poll, 1500);
+  }
+  setTimeout(poll, 1500);
+  {% endif %}
+})();
+</script>{% endblock %}

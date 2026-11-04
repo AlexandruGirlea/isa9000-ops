@@ -1,0 +1,14 @@
+provider = "azure"
+
+[branding]
+# Your name: shown on the sign-in page, the navbar, the admin, the browser tab and podcast pages.
+brand = "isa9000"
+# Your logo: put an SVG in this folder and write its file name here, e.g. "logo.svg".
+# Leave it empty to use the isa9000 logo.
+logo = ""
+accent_color = "#6C3CE1"
+# Footer text, linked to the isa9000 GitHub page. Leave it empty to hide it.
+powered_by = "Powered by isa9000"
+
+[narrator]
+name = "Isabela"

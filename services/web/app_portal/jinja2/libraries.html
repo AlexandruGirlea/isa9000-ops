@@ -1,0 +1,16 @@
+{% extends "portal_base.html" %}
+{% block extra_css %}{{ catalog_css }}{{ super() }}{% endblock %}
+{% block header_class %}scrolled solid{% endblock %}
+{% block content %}
+<section id="catalog" class="section bg-gray"><div class="container">
+  <div class="portal-heading"><h1>Libraries</h1>{% if creator %}<a class="px-btn px-btn-theme" href="/libraries/new/"><i class="bi bi-plus-lg" aria-hidden="true"></i> New library</a>{% endif %}</div>
+  <p class="portal-intro">Listen, read along and learn at your own pace. Each library brings together podcasts shared with that group.</p>
+  {% if libraries %}{% include "catalog_search.html" %}{% endif %}
+  <div id="catalog-cards" class="row g-4">{% for item in libraries %}
+    <div class="col-md-6 catalog-item"><div class="catalog-card"><a class="catalog-card-link" href="/libraries/{{ item.group.object_id }}/"><div class="catalog-card-body">
+      {% if item.cover %}<img class="catalog-cover" src="{{ item.cover }}" alt="">{% endif %}
+      <div class="catalog-text"><h5>{{ item.group }}</h5><span class="meta-badge count">{{ item.count }} {{ 'podcast' if item.count == 1 else 'podcasts' }}</span> {% if item.updated %}<span class="meta-badge date">{{ item.updated.strftime('%d %B %Y') }}</span>{% endif %}</div>
+    </div></a></div></div>
+  {% else %}<div class="col-12"><div class="portal-empty"><i class="bi bi-collection-play fs-2" aria-hidden="true"></i><p class="mt-3 mb-0">No podcasts in your libraries yet.{% if creator %} Choose New library to add a podcast for one of your groups.{% else %} Podcasts will appear here when your team's creators publish them. Contact your administrator if a library is missing.{% endif %}</p></div></div>{% endfor %}</div>
+</div></section>
+{% endblock %}

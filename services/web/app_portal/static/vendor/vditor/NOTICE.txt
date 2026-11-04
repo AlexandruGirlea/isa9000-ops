@@ -1,0 +1,16 @@
+Vditor 4.0.1, Copyright (c) 2018-present B3log, b3log.org (MIT).
+https://github.com/Vanessa219/vditor/tree/v4.0.1
+Runtime files are unmodified files from the npm vditor 4.0.1 distribution.
+Only the editor, Lute engine, English locale, icons and light/dark styles are included.
+Optional diagram, math and syntax-highlighting engines are not distributed here.
+The editor's default highlight stylesheet and its license are included.
+
+Archive: https://registry.npmjs.org/vditor/-/vditor-4.0.1.tgz
+SHA-512 (base64): CyajvPNE8fjCgEAzAaSxVEEWwQMJ5FTIVkNn3k+5IRaldqGwPRr8Dx2QLALHGCby8L/AJ6pQXjXiSPUGhHGmDw==
+
+Bundled components:
+Lute, Copyright (c) 2018-present B3log (MulanPSL-2.0), licenses/Lute.txt.
+diff-match-patch, Copyright 2018 The diff-match-patch Authors (Apache-2.0),
+licenses/diff-match-patch.txt.
+GopherJS, Copyright (c) 2013 Richard Musiol (BSD-2-Clause), licenses/GopherJS.txt.
+Go, Copyright (c) 2009 The Go Authors (BSD-3-Clause), licenses/Go.txt.

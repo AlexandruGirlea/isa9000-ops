@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "services"
+version = "0.1.0"
+description = "Hosted isa9000 worker and Django portal."
+license = "Apache-2.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "isa9000==0.3.0",
+    "Django>=5.2,<5.3",
+    "gunicorn",
+    "psycopg2-binary",
+    "azure-servicebus",
+    "azure-storage-blob",
+    "azure-identity",
+    "azure-monitor-opentelemetry",
+    "whitenoise",
+    "jinja2>=3.1",
+    "markdown-it-py[linkify]>=4.2,<5",
+    "mdit-py-plugins>=0.5,<1",
+    "Pillow>=13,<14",
+    "requests>=2.31",
+    "msal>=1.39,<2",
+    "PyJWT[crypto]>=2.10,<3",
+    "cryptography>=50,<51",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff==0.17.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["worker", "shared"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "web"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "C4", "UP", "RUF", "PLE", "PLW", "ERA"]
+
+[tool.ruff.lint.per-file-ignores]
+"web/app_portal/migrations/*.py" = ["E501", "RUF012"]

@@ -1,0 +1,14 @@
+{% set formatted = podcast.description|description_markdown %}
+{% set plain = formatted|striptags %}
+{% set short = plain|length <= 200 and formatted.startswith('<p>') and formatted.endswith('</p>\n') and formatted.count('<p>') == 1 and '<img ' not in formatted and '<br' not in formatted %}
+{% if formatted and not short %}
+<div class="podcast-description mt-3">
+  <p class="description-excerpt">{{ plain|truncate(200) }}</p>
+  <details class="description-details">
+    <summary>Full description and resources</summary>
+    <div class="markdown-body mt-3">{{ formatted }}</div>
+  </details>
+</div>
+{% else %}
+<div class="mt-3 markdown-body">{{ formatted }}</div>
+{% endif %}

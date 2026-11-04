@@ -1,0 +1,19 @@
+<section class="card review-callout" aria-labelledby="review-heading">
+  <div>
+    <p class="review-eyebrow">Awaiting your approval</p>
+    <h2 id="review-heading">Review, then record</h2>
+    <p class="hint">Read the transcripts and review notes. When you approve, isa9000 records the audio and publishes this podcast to <strong>{{ course.group }}</strong>{% for library in course.shared_groups.all() %}, <strong>{{ library }}</strong>{% endfor %}.</p>
+    {% set review = course.manifest.get('review', {}) %}
+    {% if review.get('edited') %}<p class="hint">Transcripts have been edited since automated review. Check your changes before approving; the earlier checks do not cover the edited text.</p>
+    {% elif review.get('score') is not none %}<p class="review-score">AI review <strong>{{ review.score }}/10</strong>{% if review.get('approved') == false %}<span>Human review requested</span>{% endif %}</p>{% endif %}
+    {% if review.get('notes') %}<details class="review-notes"><summary>Why review was requested</summary>{% for note in review.notes %}<p class="hint">{{ note }}</p>{% endfor %}</details>{% endif %}
+    <a class="link-btn" href="/courses/{{ course.id }}/manage/#episodes">Read the transcripts <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+  </div>
+  <form method="post" action="/courses/{{ course.id }}/manage/" class="approval-form">
+    {{ csrf_input }}{{ approval_form.revision }}{{ approval_form.revision.errors }}
+    <label class="toggle" for="id_approved">{{ approval_form.approved }}<span>{{ approval_form.approved.label }}</span></label>
+    {{ approval_form.approved.errors }}
+    <button class="primary" name="action" value="record">Approve &amp; record audio</button>
+    <p class="hint">Recording uses your saved voice settings and model credits. Nothing starts until you approve.</p>
+  </form>
+</section>

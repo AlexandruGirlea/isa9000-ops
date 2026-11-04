@@ -1,0 +1,25 @@
+.navbar > .container { flex-wrap: nowrap; gap: 12px; }
+.navbar-brand { min-width: 0; margin-right: 0; overflow-wrap: anywhere; white-space: normal; }
+.navbar .ms-auto { flex-shrink: 0; }
+.portal-links { display: flex; align-items: center; gap: 20px; margin: 0 12px; }
+.portal-links form { margin: 0; }
+.portal-links a, .portal-links button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0; color: var(--text); background: none; border: 0; text-decoration: none; font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; }
+.portal-links a:hover, .portal-links button:hover, .portal-links a[aria-current=page] { color: var(--primary); }
+[data-theme="dark"] .portal-links a[aria-current=page] { color: var(--primary-light); }
+.main-header:not(.scrolled) .portal-links :is(a, button) { color: rgba(255,255,255,.85); }
+.main-header:not(.scrolled) .portal-links :is(a, button):hover { color: #fff; }
+.course-edit-action { margin: 16px 0; }
+.course-edit-action a { min-height: 44px; }
+.podcast-hero h1 { overflow-wrap: anywhere; }
+.footer .row > div:has(#current-year) { display: none; }
+.footer .row > div:not(:has(#current-year)) { width: 100%; text-align: center !important; }
+@media (max-width: 575px) {
+  .navbar { padding: 12px 0; }
+  .text-logo { font-size: 1.1rem; }
+  .text-logo img { height: 26px; margin-right: 4px; }
+  .navbar > .container { flex-wrap: wrap; gap: 4px 12px; }
+  .navbar .ms-auto { display: contents !important; }
+  .ui-toggles { gap: 4px; margin-left: auto; }
+  .portal-links { order: 1; flex-basis: 100%; flex-wrap: wrap; margin: 0; gap: 4px 16px; }
+  .portal-links i { display: none; }
+}

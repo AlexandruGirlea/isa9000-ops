@@ -1,0 +1,6 @@
+name: isa9000
+description: Hosted isa9000 on Azure
+runtime:
+  name: python
+  options:
+    toolchain: uv

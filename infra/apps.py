@@ -1,0 +1,331 @@
+from __future__ import annotations
+
+import pulumi
+import pulumi_azuread as azuread
+from pulumi_azure_native import app, keyvault
+
+import core as s
+import data
+import edge
+
+if s.auth_app == "create":
+    registration = azuread.Application(
+        "auth-app",
+        display_name=s.prefix,
+        sign_in_audience="AzureADMyOrg",
+        group_membership_claims=[s.group_claims],
+        owners=[s.client.object_id],
+        web={
+            "redirect_uris": [
+                pulumi.Output.concat("https://", edge.azure_host, "/.auth/login/aad/callback")
+            ],
+            "implicit_grant": {"id_token_issuance_enabled": True},
+        },
+        tags=[f"{key}={value}" for key, value in s.tags.items()],
+    )
+    azuread.ServicePrincipal(
+        "auth-service-principal",
+        client_id=registration.client_id,
+        app_role_assignment_required=True,
+        owners=[s.client.object_id],
+        tags=[f"{key}={value}" for key, value in s.tags.items()],
+    )
+    password = azuread.ApplicationPassword("auth-password", application_id=registration.id)
+    auth_client_id = registration.client_id
+    auth_secret = password.value
+else:
+    auth_client_id = s.auth_app["clientId"]
+    auth_secret = s.config.require_secret_object("authApp").apply(
+        lambda value: value["clientSecret"]
+    )
+
+
+def identity(resource):
+    return {
+        "type": "UserAssigned",
+        "user_assigned_identities": resource.id.apply(lambda rid: {rid: {}}),
+    }
+
+
+def variables(values, secrets):
+    return [{"name": key, "value": value} for key, value in values.items()] + [
+        {"name": key, "secret_ref": value} for key, value in secrets.items()
+    ]
+
+
+telemetry_env = {"APPLICATIONINSIGHTS_CONNECTION_STRING": s.insights.connection_string}
+shared_env = {
+    **telemetry_env,
+    "ISA9000_STORAGE_ACCOUNT": data.account.name,
+    "ISA9000_SERVICEBUS_NAMESPACE": pulumi.Output.concat(data.bus.name, ".servicebus.windows.net"),
+    "ISA9000_QUEUE": "tasks",
+    "ISA9000_CONFIG": "/config/isa9000.toml",
+}
+vault_secrets = {
+    name: keyvault.Secret(
+        f"secret-{name}",
+        resource_group_name=data.group_name,
+        vault_name=data.vault.name,
+        secret_name=name,
+        properties={"value": pulumi.Output.secret(value)},
+        tags=s.tags,
+    )
+    for name, value in {
+        "database": data.database_url,
+        "django-key": data.django_secret.result,
+        "callback": data.callback_secret.result,
+        "payload-key": data.payload_key.base64,
+        "admin-group": s.admin_group,
+        "auth-client-secret": auth_secret,
+    }.items()
+}
+credential_refs = {}
+for workload, resource, names in (
+    ("web", data.web_identity, vault_secrets),
+    ("worker", data.worker_identity, ("callback", "payload-key")),
+    ("watchdog", data.watchdog_identity, ("database", "django-key", "admin-group")),
+):
+    credential_refs[workload] = []
+    for name in names:
+        secret = vault_secrets[name]
+        data.grant(
+            f"{workload}-secret-{name}", resource, secret.id,
+            "4633458b-17de-408a-b874-0445c86b69e6",
+        )
+        credential_refs[workload].append({
+            "name": name,
+            "key_vault_url": secret.properties.apply(lambda properties: properties.secret_uri),
+            "identity": resource.id,
+        })
+web_secrets = [*s.config_secrets, *credential_refs["web"]]
+web_env = variables(
+    {
+        **shared_env,
+        "OTEL_SERVICE_NAME": "isa9000-web",
+        "AZURE_CLIENT_ID": data.web_identity.client_id,
+        "ISA9000_AUTH": "easyauth",
+        "ISA9000_ENTRA_TENANT_ID": s.tenant,
+        "ISA9000_ENTRA_CLIENT_ID": auth_client_id,
+        "ISA9000_ALLOWED_HOSTS": pulumi.Output.concat(edge.azure_host, ",", edge.internal_host),
+        "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat("https://", edge.internal_host),
+        "ISA9000_DAILY_RUNS_PER_USER": str(s.config.get_int("dailyRunsPerUser") or 5),
+        "ISA9000_MAX_UPLOAD_MB": str(s.config.get_int("maxUploadMb") or 20),
+        "ISA9000_MAX_FILES": str(s.config.get_int("maxFiles") or 10),
+    },
+    {
+        "DATABASE_URL": "database",
+        "ISA9000_DJANGO_SECRET_KEY": "django-key",
+        "ISA9000_CALLBACK_SECRET": "callback",
+        "ISA9000_PAYLOAD_KEY": "payload-key",
+        "ISA9000_ADMIN_GROUP_ID": "admin-group",
+    },
+)
+minimum = s.config.get_int("webMinReplicas")
+if minimum is None:
+    minimum = 2 if s.environment == "prod" else 0
+maximum = s.config.get_int("webMaxReplicas") or 3
+if minimum < 0 or maximum < max(1, minimum):
+    raise ValueError("webMaxReplicas must be positive and at least webMinReplicas")
+web = app.ContainerApp(
+    "web",
+    container_app_name=edge.web_name,
+    environment_id=s.app_environment.id,
+    identity=identity(data.web_identity),
+    workload_profile_name="Consumption",
+    configuration={
+        "active_revisions_mode": "Single",
+        "secrets": web_secrets,
+        "ingress": {
+            "external": True,
+            "target_port": 8000,
+            "transport": "auto",
+            "allow_insecure": False,
+            "ip_security_restrictions": edge.restrictions,
+        },
+    },
+    template={
+        "containers": [
+            {
+                "name": "web",
+                "image": s.image,
+                "args": ["gunicorn", "-c", "gunicorn.conf.py", "core.wsgi"],
+                "resources": {"cpu": 0.5, "memory": "1Gi"},
+                "env": web_env,
+                "volume_mounts": [s.config_mount],
+                "probes": [
+                    {
+                        "type": probe,
+                        "initial_delay_seconds": 10,
+                        "period_seconds": 10,
+                        "http_get": {
+                            "path": "/healthz",
+                            "port": 8000,
+                            "http_headers": [
+                                {"name": "Host", "value": edge.azure_host},
+                                {"name": "X-Forwarded-Proto", "value": "https"},
+                            ],
+                        },
+                    }
+                    for probe in ("Liveness", "Readiness")
+                ],
+            }
+        ],
+        "volumes": [s.config_volume],
+        "scale": {
+            "min_replicas": minimum,
+            "max_replicas": maximum,
+            "rules": [{"name": "http", "http": {"metadata": {"concurrentRequests": "50"}}}],
+        },
+    },
+    opts=pulumi.ResourceOptions(
+        depends_on=[
+            *data.permissions,
+            data.database_access,
+            data.database_schema,
+        ]
+    ),
+    **data.common,
+)
+auth = app.ContainerAppsAuthConfig(
+    "easyauth",
+    resource_group_name=data.group_name,
+    container_app_name=web.name,
+    auth_config_name="current",
+    platform={"enabled": True},
+    login={
+        "cookie_expiration": {"convention": "FixedTime", "time_to_expiration": "08:00:00"},
+        "token_store": {
+            "enabled": True,
+            "token_refresh_extension_hours": 0,
+            "azure_blob_storage": {
+                "blob_container_uri": pulumi.Output.concat(
+                    "https://", data.account.name, ".blob.core.windows.net/auth-tokens"
+                ),
+                "managed_identity_resource_id": data.web_identity.id,
+            },
+        },
+    },
+    global_validation={
+        "unauthenticated_client_action": "RedirectToLoginPage",
+        "redirect_to_provider": "azureactivedirectory",
+        "excluded_paths": ["/", "/static/*", "/healthz", "/internal/*"],
+    },
+    identity_providers={
+        "azure_active_directory": {
+            "enabled": True,
+            "registration": {
+                "client_id": auth_client_id,
+                "client_secret_setting_name": "auth-client-secret",
+                "open_id_issuer": f"https://login.microsoftonline.com/{s.tenant}/v2.0",
+            },
+            "validation": {"allowed_audiences": [auth_client_id]},
+        }
+    },
+    http_settings={"require_https": True, "forward_proxy": {"convention": "NoProxy"}},
+)
+
+worker_secrets = [*s.config_secrets, *credential_refs["worker"]]
+worker_secret_env = {"ISA9000_CALLBACK_SECRET": "callback", "ISA9000_PAYLOAD_KEY": "payload-key"}
+worker = app.Job(
+    "worker",
+    job_name=f"{s.prefix}-worker",
+    environment_id=s.app_environment.id,
+    identity=identity(data.worker_identity),
+    workload_profile_name="Consumption",
+    configuration={
+        "trigger_type": "Event",
+        "replica_timeout": 7200,
+        "replica_retry_limit": 0,
+        "secrets": worker_secrets,
+        "event_trigger_config": {
+            "parallelism": 1,
+            "replica_completion_count": 1,
+            "scale": {
+                "min_executions": 0,
+                "max_executions": s.config.get_int("workerMaxExecutions")
+                or (10 if s.environment == "prod" else 3),
+                "polling_interval": s.config.get_int("workerPollingSeconds") or 10,
+                "rules": [
+                    {
+                        "name": "tasks",
+                        "type": "azure-servicebus",
+                        "identity": data.worker_identity.id,
+                        "metadata": {
+                            "namespace": data.bus.name,
+                            "queueName": "tasks",
+                            "messageCount": "1",
+                        },
+                    }
+                ],
+            },
+        },
+    },
+    template={
+        "containers": [
+            {
+                "name": "worker",
+                "image": s.image,
+                "args": ["python", "-m", "worker"],
+                "resources": {"cpu": 1, "memory": "2Gi"},
+                "env": variables(
+                    {
+                        **shared_env,
+                        "OTEL_SERVICE_NAME": "isa9000-worker",
+                        "AZURE_CLIENT_ID": data.worker_identity.client_id,
+                        "ISA9000_AZURE_OPENAI_ENDPOINT": data.foundry_endpoint,
+                        "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat(
+                            "https://", edge.internal_host
+                        ),
+                    },
+                    worker_secret_env,
+                ),
+                "volume_mounts": [s.config_mount],
+            }
+        ],
+        "volumes": [s.config_volume],
+    },
+    opts=pulumi.ResourceOptions(depends_on=[*data.permissions, auth]),
+    **data.common,
+)
+watchdog = app.Job(
+    "watchdog",
+    job_name=f"{s.prefix}-watchdog",
+    environment_id=s.app_environment.id,
+    identity=identity(data.watchdog_identity),
+    workload_profile_name="Consumption",
+    configuration={
+        "trigger_type": "Schedule",
+        "replica_timeout": 240,
+        "replica_retry_limit": 0,
+        "schedule_trigger_config": {
+            "cron_expression": "*/5 * * * *",
+            "parallelism": 1,
+            "replica_completion_count": 1,
+        },
+        "secrets": credential_refs["watchdog"],
+    },
+    template={
+        "containers": [
+            {
+                "name": "watchdog",
+                "image": s.image,
+                "args": ["python", "manage.py", "expire_runs"],
+                "resources": {"cpu": 0.25, "memory": "0.5Gi"},
+                "env": variables(
+                    {
+                        **telemetry_env,
+                        "OTEL_SERVICE_NAME": "isa9000-watchdog",
+                        "AZURE_CLIENT_ID": data.watchdog_identity.client_id,
+                    },
+                    {
+                        "DATABASE_URL": "database",
+                        "ISA9000_DJANGO_SECRET_KEY": "django-key",
+                        "ISA9000_ADMIN_GROUP_ID": "admin-group",
+                    },
+                ),
+            }
+        ]
+    },
+    opts=pulumi.ResourceOptions(depends_on=data.permissions),
+    **data.common,
+)
