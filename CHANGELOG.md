@@ -7,7 +7,7 @@
   hidden. Nothing is deleted. Enable further groups under **Admin → Libraries**.
 - Sign-ins list each group under **Admin → Libraries**, hidden and named after its Entra ID.
   Administrators open a group to rename and enable it.
-- Administrators control the library lifecycle: discovered, enabled and archived.
+- Administrators control the library lifecycle: hidden, enabled and archived.
   Archiving revokes portal access and keeps all data. Empty libraries stay hidden unless
   **Show when empty** is on. **New library** is now **Add podcast**.
 - People whose token has no usable group list (Entra group overage, missing or malformed

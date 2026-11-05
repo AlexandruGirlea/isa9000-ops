@@ -169,7 +169,7 @@ Names are labels: access always uses the Entra group ID. Administrators get ever
 offer the first 50 enabled libraries; each library's page links to its people and podcasts.
 
 If you roll back to a release before this one, podcasts created in new groups stay hidden
-after you upgrade. Find them with the **Discovered** status and **Owned podcasts** content
+after you upgrade. Find them with the **Hidden** status and **Owned podcasts** content
 filters, then enable those libraries.
 
 | Enabled library | Viewer | Creator with access | Administrator |
