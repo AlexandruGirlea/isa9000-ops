@@ -47,7 +47,7 @@ class EntraGroup(models.Model):
 
     class Meta:
         verbose_name = "library"
-        verbose_name_plural = "libraries"
+        verbose_name_plural = "libraries / Entra groups"
         ordering = ("name", "object_id")
 
     def __str__(self):
@@ -112,7 +112,7 @@ class LibraryGrant(models.Model):
         related_name="grants",
         limit_choices_to={"status": "enabled"},
     )
-    reason = models.CharField(max_length=500)
+    reason = models.CharField(max_length=500, blank=True)
     expires = models.DateTimeField(
         null=True, blank=True, help_text="Leave empty for access until it is revoked."
     )

@@ -66,7 +66,7 @@ See the [architecture overview](architecture.md) for the main generation path.
 People see each enabled Entra group as a **library**.
 Each library contains **podcasts**, each podcast contains episodes, and each
 creation, recording or rendering attempt is a **run**. The standard Django
-admin exposes **Libraries**, **Local library access**, **Podcasts**, **Runs** and
+admin exposes **Libraries / Entra groups**, **Local library access**, **Podcasts**, **Runs** and
 **Users**.
 
 Optional podcast descriptions use the standard Vditor rich-text editor (up to
@@ -149,7 +149,7 @@ including requests made with an existing session.
 
 ### Libraries and local access
 
-When a member signs in, each group in their token appears under **Admin → Libraries**,
+When a member signs in, each group in their token appears under **Admin → Libraries / Entra groups**,
 named after its Entra group ID and set to **Hidden**. Open the group, change the name
 and set the status to **Enabled**. Turn on **Show when empty** to list it before its first
 podcast. Filter by status, display name, review state, content and **Show when empty**, or
@@ -182,8 +182,8 @@ Published podcasts shared into a library count as its content. **Show when empty
 grants no membership or creator rights.
 
 **Admin → Local library access** gives one person access to one enabled library
-without changing Entra. Each record keeps who granted it, the reason, the time, an
-optional expiry and any revocation. Records can be revoked but not edited or deleted.
+without changing Entra. Each record keeps who granted it, the time, an optional reason,
+an optional expiry and any revocation. Without an expiry, access lasts until it is revoked. Records can be revoked but not edited or deleted.
 You cannot grant access to yourself. A person's access is their current Entra membership
 plus active local grants, and **Admin → Users → the person** shows each source.
 Revoking a local grant cannot remove access that Entra still provides. A local grant

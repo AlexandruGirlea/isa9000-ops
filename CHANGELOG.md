@@ -4,8 +4,8 @@
 
 - **Upgrade note:** groups no longer become libraries by themselves. On upgrade, groups that
   own or receive a podcast become enabled libraries and all other groups are
-  hidden. Nothing is deleted. Enable further groups under **Admin → Libraries**.
-- Sign-ins list each group under **Admin → Libraries**, hidden and named after its Entra ID.
+  hidden. Nothing is deleted. Enable further groups under **Admin → Libraries / Entra groups**.
+- Sign-ins list each group under **Admin → Libraries / Entra groups**, hidden and named after its Entra ID.
   Administrators open a group to rename and enable it.
 - Administrators control the library lifecycle: hidden, enabled and archived.
   Archiving revokes portal access and keeps all data. Empty libraries stay hidden unless

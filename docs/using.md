@@ -11,7 +11,7 @@ browser. Employees do not need GitHub, Docker, Python or Azure access.
 ## Administrators: set up the audience
 
 1. Sign in with Microsoft using an account in the configured administrator group.
-2. Open **Admin → Libraries**. Each group appears, named after its Entra ID, once a member
+2. Open **Admin → Libraries / Entra groups**. Each group appears, named after its Entra ID, once a member
    signs in. Open your team's groups, give them readable names and set them to **Enabled**.
    Other groups stay hidden from everyone.
 3. Ask prospective creators to sign in once, then set their role under

@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AlterModelOptions(
             name='entragroup',
-            options={'ordering': ('name', 'object_id'), 'verbose_name': 'library', 'verbose_name_plural': 'libraries'},
+            options={'ordering': ('name', 'object_id'), 'verbose_name': 'library', 'verbose_name_plural': 'libraries / Entra groups'},
         ),
         migrations.AddField(
             model_name='entragroup',
@@ -60,7 +60,7 @@ class Migration(migrations.Migration):
             name='LibraryGrant',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('reason', models.CharField(max_length=500)),
+                ('reason', models.CharField(blank=True, max_length=500)),
                 ('expires', models.DateTimeField(blank=True, help_text='Leave empty for access until it is revoked.', null=True)),
                 ('created', models.DateTimeField(auto_now_add=True)),
                 ('revoked', models.DateTimeField(blank=True, null=True)),

@@ -434,6 +434,23 @@ class LocalAccessRecordTests(LibraryCase):
             granted_by=Profile.objects.get(user__username=ADMIN_OID).user,
         )
 
+    def test_reason_and_expiry_are_optional_and_no_expiry_means_no_end(self):
+        library = EntraGroup.objects.create(object_id=uuid.uuid4(), name="Open", status="enabled")
+        response = self.client.post(
+            "/admin/app_portal/librarygrant/add/",
+            {"profile": self.profile.pk, "library": str(library.pk), "_save": "Save"},
+            **administrator(),
+        )
+        self.assertEqual(response.status_code, 302)
+        grant = LibraryGrant.objects.get(library=library)
+        self.assertEqual(grant.reason, "")
+        self.assertIsNone(grant.expires)
+        self.assertTrue(LibraryGrant.objects.active().filter(pk=grant.pk).exists())
+        with patch(
+            "django.utils.timezone.now", return_value=timezone.now() + timedelta(days=3650),
+        ):
+            self.assertTrue(LibraryGrant.objects.active().filter(pk=grant.pk).exists())
+
     def test_records_cannot_be_edited_or_deleted(self):
         change = f"/admin/app_portal/librarygrant/{self.grant.pk}/change/"
         response = self.client.post(change, {"reason": "Edited"}, **administrator())
