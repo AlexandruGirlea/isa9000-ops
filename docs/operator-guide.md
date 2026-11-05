@@ -349,6 +349,9 @@ Entra object IDs; names, emails, source content and OAuth codes are excluded.
 Telemetry uses managed identity with Monitoring Metrics Publisher access scoped
 to the Application Insights resource. Local-key ingestion is disabled, with
 100% sampling. Retention defaults to 365 days in prod and 30 days in dev/test.
+**Admin → Contact requests** lists messages from creators. Everything is read-only except the
+status, and changing it records who did so and when.
+
 **Admin → Activity** records who created, edited, shared, canceled and deleted what, and each
 podcast shows who last edited it. Administrators can read these records but not add, change or
 delete them, and a PostgreSQL trigger refuses updates and deletes. A database owner can still

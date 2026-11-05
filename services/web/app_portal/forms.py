@@ -102,6 +102,15 @@ class GenerationForm(forms.Form):
         return cleaned
 
 
+class ContactForm(forms.Form):
+    # The editor hides this field, so a browser "required" check could never be answered.
+    use_required_attribute = False
+    description = forms.CharField(
+        max_length=10000, label="Your request",
+        widget=forms.Textarea(attrs={"rows": 5, "aria-describedby": "description-help"}),
+    )
+
+
 class CreateForm(GenerationForm):
     title = forms.CharField(
         max_length=80, label="Podcast title", required=False,

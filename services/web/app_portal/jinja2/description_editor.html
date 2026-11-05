@@ -27,7 +27,7 @@
   editor = new Vditor(mount, {
     cdn: '/static/vendor/vditor', lang: 'en_US', mode: 'wysiwyg',
     theme: dark() ? 'dark' : 'classic', value: '',
-    placeholder: 'What will listeners learn? Add useful links and reference material.',
+    placeholder: field.dataset.descriptionPlaceholder,
     height: 420, minHeight: 240, cache: { enable: false },
     counter: { enable: true, max: input.maxLength }, resize: { enable: true },
     toolbarConfig: { pin: false },

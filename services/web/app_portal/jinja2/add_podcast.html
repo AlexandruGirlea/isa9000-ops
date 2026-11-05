@@ -9,7 +9,7 @@
 {% if pages or query %}{% include "catalog_search.html" %}{% endif %}
 <div id="catalog-cards" class="row g-4">{% for group in pages %}<div class="col-md-6 catalog-item"><div class="catalog-card">
   <a class="catalog-card-link" href="/libraries/{{ group.object_id }}/new/"><div class="catalog-card-body"><div class="catalog-text"><h5>{{ group }}</h5><p>Add a podcast <i class="bi bi-arrow-right" aria-hidden="true"></i></p></div></div></a>
-</div></div>{% else %}<div class="col-12"><div class="portal-empty">{% if query %}No libraries match your search.{% else %}No library is available yet. Ask your administrator to enable one.{% endif %}</div></div>{% endfor %}</div>
+</div></div>{% else %}<div class="col-12"><div class="portal-empty">{% if query %}No libraries match your search.{% else %}No library is available yet. <a href="/contact/">Ask your administrators to enable one.</a>{% endif %}</div></div>{% endfor %}</div>
 {% include "catalog_pages.html" %}
 </div></section>
 {% endblock %}

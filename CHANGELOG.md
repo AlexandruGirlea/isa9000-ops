@@ -12,6 +12,7 @@
   **Show when empty** is on. **New library** is now **Add podcast**.
 - People whose token has no usable group list (Entra group overage, missing or malformed
   claims) can sign in instead of getting a 403 error. Stale memberships never grant access.
+- **Contact** lets creators send requests to administrators, who track them in the admin.
 - The podcast title is optional when creating a podcast; without one, isa9000 chooses it.
 - Short podcast descriptions show their formatting on the course page instead of a plain excerpt.
 - **Cancel processing** replaces **Stop**: it asks first, deletes what the run created, and

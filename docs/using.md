@@ -33,6 +33,12 @@ new sign-ins and existing sessions on their next application request. Checking
 **Active** again restores access without changing their role or group membership.
 The user list also shows and filters by Active status. Changes are audited.
 
+## Creators: ask for something
+
+**Contact** in the navigation bar opens a short form. Use it to ask your administrators for
+what you need, such as a library for your department. Administrators see requests under
+**Admin → Contact requests** and set each one to **To do**, **In progress** or **Done**.
+
 ## Staying signed in
 
 Sessions end after **two hours without activity**, or **eight hours after sign-in**,

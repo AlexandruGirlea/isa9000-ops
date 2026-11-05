@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app_portal import callbacks, catalog, descriptions, media, transcripts, views
+from app_portal import callbacks, catalog, contact, descriptions, media, transcripts, views
 from django.contrib import admin
 from django.urls import path
 from django.views.generic import RedirectView
@@ -34,6 +34,8 @@ urlpatterns = [
     ),
     path("runs/<uuid:run_id>/", views.run_page, name="run"),
     path("runs/", views.history, name="history"),
+    path("contact/", contact.contact, name="contact"),
+    path("contact/description-preview/", descriptions.preview),
     path("media/<uuid:course_id>/<path:filename>", media.media),
     path("internal/runs/<uuid:run_id>/<str:action>", callbacks.callback),
     path("static/isa9000/logo.svg", core_views.logo),

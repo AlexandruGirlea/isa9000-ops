@@ -1,0 +1,27 @@
+{% extends "workspace.html" %}
+{% block meta %}{{ super() }}<link rel="stylesheet" href="/static/vendor/vditor/dist/index.css">{% endblock %}
+{% block content %}
+<section class="section bg-gray"><div class="container">
+<nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><span>Contact</span></nav>
+<div class="portal-heading"><h1>Contact your administrators</h1></div>
+<div class="generation-workspace">
+<form method="post">{{ csrf_input }}
+<section class="card">
+  <p class="hint">Ask for what you need. For example, to make a library available, tell us which department or team it is for.</p>
+  {% set description_field = form.description %}
+  {% set description_preview_url = '/contact/description-preview/' %}
+  {% set description_label = 'Your request' %}
+  {% set description_hint = 'Required' %}
+  {% set description_help = 'Up to 10,000 characters.' %}
+  {% set description_placeholder = 'Which department or team needs a library?' %}
+  {% include "description_field.html" %}
+  <div class="row-actions page-actions"><button class="primary">Send</button></div>
+</section>
+</form>
+</div></div></section>
+{% endblock %}
+{% block extra_js %}{{ super() }}{% include "description_editor.html" %}
+{% if sent %}<script nonce="{{ request.csp_nonce }}">
+window.alert('Thank you. Your request was sent to your administrators.');
+location.replace('/libraries/');
+</script>{% endif %}{% endblock %}

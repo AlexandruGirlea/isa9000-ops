@@ -175,6 +175,32 @@ class Course(models.Model):
         return self.title or f"Untitled podcast {str(self.id)[:8]}"
 
 
+class ContactRequest(models.Model):
+    body = models.TextField("message")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+",
+        verbose_name="sent by",
+    )
+    created = models.DateTimeField("sent", auto_now_add=True)
+    status = models.CharField(
+        max_length=11,
+        default="todo",
+        choices=[("todo", "To do"), ("in_progress", "In progress"), ("done", "Done")],
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    updated = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "contact request"
+        verbose_name_plural = "contact requests"
+        ordering = ("-created",)
+
+    def __str__(self):
+        return f"Request {self.pk} from {person_name(self.created_by)}"
+
+
 class LocalTestUser(models.Model):
     number = models.AutoField(primary_key=True)
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

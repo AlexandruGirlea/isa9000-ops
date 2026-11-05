@@ -14,14 +14,24 @@ from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.functional import lazy
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from app_portal.library_admin import AuditedAdmin, LibraryFilter
-from app_portal.models import Course, EntraGroup, LibraryGrant, Profile, Run, person_name
+from app_portal.models import (
+    ContactRequest,
+    Course,
+    EntraGroup,
+    LibraryGrant,
+    Profile,
+    Run,
+    person_name,
+)
 from app_portal.permissions import access_sources
 from shared import storage
+from shared.descriptions import render_description
 
 admin.site.unregister(User)
 admin.site.unregister(Group)
@@ -310,6 +320,39 @@ class CourseAdmin(AuditedAdmin):
         for course in queryset:
             if self.has_delete_permission(request, course):
                 self.delete_model(request, course)
+
+
+@admin.register(ContactRequest)
+class ContactRequestAdmin(AuditedAdmin):
+    list_display = ("__str__", "status", "created_by", "created", "updated_by", "updated")
+    list_filter = ("status", "created")
+    list_select_related = ("created_by", "updated_by")
+    list_per_page = 50
+    show_full_result_count = False
+    search_fields = ("body", "created_by__first_name", "created_by__email")
+    readonly_fields = ("created_by", "created", "message", "updated_by", "updated")
+    fields = ("created_by", "created", "message", "status", "updated_by", "updated")
+
+    @admin.display(description="Message")
+    def message(self, obj):
+        return render_description(obj.body)
+
+    def save_model(self, request, obj, form, change):
+        if "status" in form.changed_data:
+            obj.updated_by, obj.updated = request.user, timezone.now()
+        super().save_model(request, obj, form, change)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
 
 
 @admin.register(Run)
