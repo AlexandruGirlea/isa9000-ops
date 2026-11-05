@@ -61,7 +61,7 @@ account = storage.StorageAccount(
     "storage",
     account_name=f"isa9000{s.environment}{s.suffix}",
     kind="StorageV2",
-    sku={"name": "Standard_ZRS" if s.environment == "prod" else "Standard_LRS"},
+    sku={"name": "Standard_GZRS" if s.environment == "prod" else "Standard_LRS"},
     allow_blob_public_access=False,
     allow_shared_key_access=False,
     enable_https_traffic_only=True,
@@ -150,7 +150,11 @@ for name, identity in (
 bus = servicebus.Namespace(
     "servicebus",
     namespace_name=f"{s.prefix}-{s.suffix}",
-    sku={"name": "Basic", "tier": "Basic"},
+    sku={
+        "name": "Standard" if s.environment == "prod" else "Basic",
+        "tier": "Standard" if s.environment == "prod" else "Basic",
+    },
+    public_network_access="Enabled",
     disable_local_auth=True,
     minimum_tls_version="1.2",
     **common,
@@ -174,10 +178,18 @@ database = dbforpostgresql.Server(
     administrator_login_password=database_password.result,
     version="16",
     sku={
-        "name": s.config.get("postgresSku") or "Standard_B1ms",
-        "tier": s.config.get("postgresTier") or "Burstable",
+        "name": s.config.get("postgresSku") or (
+            "Standard_D2ds_v5" if s.environment == "prod" else "Standard_B1ms"
+        ),
+        "tier": s.config.get("postgresTier") or (
+            "GeneralPurpose" if s.environment == "prod" else "Burstable"
+        ),
     },
-    storage={"storage_size_gb": 32},
+    storage={
+        "storage_size_gb": 128 if s.environment == "prod" else 32,
+        "auto_grow": "Enabled" if s.environment == "prod" else "Disabled",
+    },
+    high_availability={"mode": "Disabled"},
     backup={
         "backup_retention_days": 35 if s.environment == "prod" else 7,
         "geo_redundant_backup": "Enabled" if s.environment == "prod" else "Disabled",

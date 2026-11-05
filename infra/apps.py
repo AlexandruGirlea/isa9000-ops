@@ -135,8 +135,8 @@ web_env = variables(
 )
 minimum = s.config.get_int("webMinReplicas")
 if minimum is None:
-    minimum = 2 if s.environment == "prod" else 0
-maximum = s.config.get_int("webMaxReplicas") or 3
+    minimum = 1 if s.environment == "prod" else 0
+maximum = s.config.get_int("webMaxReplicas") or (5 if s.environment == "prod" else 3)
 if minimum < 0 or maximum < max(1, minimum):
     raise ValueError("webMaxReplicas must be positive and at least webMinReplicas")
 web = app.ContainerApp(
@@ -162,7 +162,10 @@ web = app.ContainerApp(
                 "name": "web",
                 "image": s.image,
                 "args": ["gunicorn", "-c", "gunicorn.conf.py", "core.wsgi"],
-                "resources": {"cpu": 0.5, "memory": "1Gi"},
+                "resources": (
+                    {"cpu": 2, "memory": "4Gi"} if s.environment == "prod"
+                    else {"cpu": 0.5, "memory": "1Gi"}
+                ),
                 "env": web_env,
                 "volume_mounts": [s.config_mount],
                 "probes": [
@@ -282,7 +285,10 @@ worker = app.Job(
                 "name": "worker",
                 "image": s.image,
                 "args": ["python", "-m", "worker"],
-                "resources": {"cpu": 1, "memory": "2Gi"},
+                "resources": (
+                    {"cpu": 2, "memory": "4Gi"} if s.environment == "prod"
+                    else {"cpu": 1, "memory": "2Gi"}
+                ),
                 "env": variables(
                     {
                         **shared_env,

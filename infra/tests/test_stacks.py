@@ -39,6 +39,8 @@ def test_stack_contract(environment):
             if "tags" in inspect.signature(args).parameters:
                 assert resource["inputs"]["tags"] == tags
     storage = resources["storage"]["inputs"]
+    production = environment == "prod"
+    assert storage["sku"]["name"] == ("Standard_GZRS" if production else "Standard_LRS")
     assert storage["allowSharedKeyAccess"] is False
     assert storage["allowBlobPublicAccess"] is False
     assert storage["enableHttpsTrafficOnly"] is True
@@ -47,7 +49,26 @@ def test_stack_contract(environment):
     )
     assert resources["tasks"]["inputs"]["maxDeliveryCount"] == 3
     assert resources["tasks"]["inputs"]["lockDuration"] == "PT1M"
-    assert resources["servicebus"]["inputs"]["sku"]["tier"] == "Basic"
+    assert resources["blob-retention"]["inputs"]["isVersioningEnabled"] is production
+    assert resources["blob-retention"]["inputs"]["containerDeleteRetentionPolicy"] == {
+        "enabled": True, "days": 30 if production else 7,
+    }
+    bus = resources["servicebus"]["inputs"]
+    assert bus["sku"]["tier"] == ("Standard" if production else "Basic")
+    assert bus["publicNetworkAccess"] == "Enabled"
+    assert bus["disableLocalAuth"] is True
+    assert bus["minimumTlsVersion"] == "1.2"
+    postgres = resources["postgres"]["inputs"]
+    assert postgres["sku"] == {
+        "name": "Standard_D2ds_v5" if production else "Standard_B1ms",
+        "tier": "GeneralPurpose" if production else "Burstable",
+    }
+    assert postgres["storage"] == {
+        "storageSizeGB": 128 if production else 32,
+        "autoGrow": "Enabled" if production else "Disabled",
+    }
+    assert postgres["highAvailability"]["mode"] == "Disabled"
+    assert postgres["backup"]["geoRedundantBackup"] == ("Enabled" if production else "Disabled")
     assert resources["postgres"]["inputs"]["backup"]["backupRetentionDays"] == (
         35 if environment == "prod" else 7
     )
@@ -57,6 +78,26 @@ def test_stack_contract(environment):
     web = resources["web"]["inputs"]
     worker = resources["worker"]["inputs"]
     watchdog = resources["watchdog"]["inputs"]
+    assert web["template"]["containers"][0]["resources"] == (
+        {"cpu": 2, "memory": "4Gi"} if production else {"cpu": 0.5, "memory": "1Gi"}
+    )
+    assert worker["template"]["containers"][0]["resources"] == (
+        {"cpu": 2, "memory": "4Gi"} if production else {"cpu": 1, "memory": "2Gi"}
+    )
+    assert web["template"]["scale"]["minReplicas"] == (1 if production else 0)
+    assert web["template"]["scale"]["maxReplicas"] == (5 if production else 3)
+    app_environment = resources["environment"]["inputs"]
+    assert app_environment["zoneRedundant"] is production
+    if production:
+        assert app_environment["vnetConfiguration"] == {
+            "infrastructureSubnetId": "/mock/apps-subnet", "internal": False,
+        }
+        assert resources["apps-subnet"]["inputs"]["delegations"] == [
+            {"name": "container-apps", "serviceName": "Microsoft.App/environments"},
+        ]
+    else:
+        assert "apps-vnet" not in resources
+        assert "apps-subnet" not in resources
     vault = resources["vault"]["inputs"]
     assert vault["resourceGroupName"] == storage["resourceGroupName"]
     assert vault["properties"]["enableRbacAuthorization"] is True
@@ -128,7 +169,10 @@ def test_stack_contract(environment):
     assert worker["configuration"]["replicaTimeout"] == 7200
     assert worker["configuration"]["replicaRetryLimit"] == 0
     scale = worker["configuration"]["eventTriggerConfig"]["scale"]
+    assert scale["minExecutions"] == 0
     assert scale["maxExecutions"] == 5
+    assert worker["configuration"]["eventTriggerConfig"]["parallelism"] == 1
+    assert worker["configuration"]["eventTriggerConfig"]["replicaCompletionCount"] == 1
     assert scale["pollingInterval"] == 10
     assert scale["rules"][0]["identity"] == "/mock/worker-identity"
     assert scale["rules"][0]["metadata"]["messageCount"] == "1"
