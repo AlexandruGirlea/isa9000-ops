@@ -5,7 +5,7 @@
 <nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><span>Contact</span></nav>
 <div class="portal-heading"><h1>Contact your administrators</h1></div>
 <div class="generation-workspace">
-<form method="post">{{ csrf_input }}
+<form method="post" style="max-width:640px">{{ csrf_input }}
 <section class="card">
   <p class="hint">Ask for what you need. For example, to make a library available, tell us which department or team it is for.</p>
   {% set description_field = form.description %}
