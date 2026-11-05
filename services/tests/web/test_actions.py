@@ -397,7 +397,7 @@ class ActionTests(PortalCase):
                 },
                 **self.headers,
             )
-        self.assertEqual(response.url, f"/libraries/{SALES}/")
+        self.assertEqual(response.url, "/libraries/")
         delete.assert_called_once_with(f"courses/{self.course.id}")
         self.assertFalse(Course.objects.exists())
 

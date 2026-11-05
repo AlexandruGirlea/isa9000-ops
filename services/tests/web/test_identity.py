@@ -23,7 +23,7 @@ from .helpers import ADMIN, OID, PortalCase, principal
 
 
 class IdentityTests(PortalCase):
-    def test_first_visit_registers_viewer_and_unknown_groups(self):
+    def test_first_visit_registers_viewer_and_ignores_unregistered_groups(self):
         oid = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
         response = self.client.get(
             "/libraries/", HTTP_X_MS_TOKEN_AAD_ID_TOKEN=principal(oid, [SALES, ADMIN])
@@ -32,13 +32,8 @@ class IdentityTests(PortalCase):
         user = get_user_model().objects.get(username=oid)
         self.assertEqual(user.profile.role, "viewer")
         self.assertTrue(user.is_superuser)
-        self.assertEqual(
-            set(user.profile.groups.values_list("object_id", flat=True)),
-            {
-                self.sales.pk,
-                EntraGroup.objects.get(pk=ADMIN).pk,
-            },
-        )
+        self.assertEqual(list(user.profile.groups.all()), [self.sales])
+        self.assertFalse(EntraGroup.objects.filter(pk=ADMIN).exists())
         with (
             override_settings(
                 AUTH_MODE="entra", LOCAL_TEST_USERS=True, ALLOWED_HOSTS=["localhost"],
@@ -91,7 +86,6 @@ class IdentityTests(PortalCase):
             "bad-base64",
             base64.b64encode(b"[]").decode(),
             principal("not-an-oid", [SALES]),
-            principal(groups=["not-a-group"]),
             base64.b64encode(json.dumps({"auth_typ": "other", "claims": []}).encode()).decode(),
         ]
         for header in headers:
@@ -102,7 +96,8 @@ class IdentityTests(PortalCase):
 
     def test_missing_group_claim_gives_actionable_message(self):
         response = self.client.get("/libraries/", HTTP_X_MS_TOKEN_AAD_ID_TOKEN=principal())
-        self.assertContains(response, "assign groups", status_code=403)
+        self.assertContains(response, "local library access")
+        self.assertContains(response, OID)
 
     def test_anonymous_and_stale_session_redirect_to_signin(self):
         self.client.force_login(self.user)

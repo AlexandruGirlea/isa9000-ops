@@ -2,7 +2,7 @@
 {% block meta %}{{ super() }}<link rel="stylesheet" href="/static/vendor/vditor/dist/index.css">{% endblock %}
 {% block content %}
 <section class="section bg-gray"><div class="container">
-<nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><a href="/libraries/{{ group.object_id }}/">{{ group }}</a><span>›</span><span>New podcast</span></nav>
+<nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span>{% if library_listed %}<a href="/libraries/{{ group.object_id }}/">{{ group }}</a>{% else %}<span>{{ group }}</span>{% endif %}<span>›</span><span>New podcast</span></nav>
 <div class="portal-heading"><h1>New podcast</h1><a class="portal-history-link" href="/runs/">History <i class="bi bi-clock-history" aria-hidden="true"></i></a></div>
 <div class="generation-workspace">
 <form id="course-form" method="post" enctype="multipart/form-data">

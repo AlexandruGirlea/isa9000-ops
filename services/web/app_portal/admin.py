@@ -12,10 +12,14 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils.functional import lazy
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
+from django.utils.safestring import mark_safe
 
-from app_portal.models import Course, EntraGroup, Profile, Run
+from app_portal.library_admin import AuditedAdmin, LibraryFilter
+from app_portal.models import Course, EntraGroup, LibraryGrant, Profile, Run
+from app_portal.permissions import access_sources
 from shared import storage
 
 admin.site.unregister(User)
@@ -27,49 +31,29 @@ LogEntry._meta.verbose_name = "activity entry"
 LogEntry._meta.verbose_name_plural = "activity"
 
 
-class AuditedAdmin(admin.ModelAdmin):
-    def log_change(self, request, obj, message):
-        fields = (
-            [field for entry in message for field in entry.get("changed", {}).get("fields", [])]
-            if isinstance(message, list) else ["role"] if isinstance(obj, Profile) else []
-        )
-        record(
-            request.user, "admin.change", obj, changed_fields=fields,
-            state=obj.role if isinstance(obj, Profile) else "",
-            target_id=obj.user.username if isinstance(obj, Profile) else str(obj.pk),
-        )
+class PersonLibraryFilter(LibraryFilter):
+    def filter_library(self, queryset, library):
+        members = Profile.groups.through.objects.filter(entragroup=library).values("profile")
+        grants = LibraryGrant.objects.active().filter(library=library).values("profile")
+        return queryset.filter(Q(pk__in=members, membership="complete") | Q(pk__in=grants))
 
-@admin.register(EntraGroup)
-class EntraGroupAdmin(AuditedAdmin):
-    list_display = ("__str__", "object_id")
-    search_fields = ("name", "object_id")
-    readonly_fields = ("object_id", "people_list", "courses_list")
-    fields = ("name", *readonly_fields)
 
-    def has_add_permission(self, request):
-        return False
+class OwningLibraryFilter(LibraryFilter):
+    title = "owning library"
 
-    def has_delete_permission(self, request, obj=None):
-        return False
 
-    def has_change_permission(self, request, obj=None):
-        return request.user.is_superuser
+class SharedLibraryFilter(LibraryFilter):
+    title = "shared library"
+    parameter_name = "shared_library"
+    lookup = "shared_groups"
 
-    def has_view_permission(self, request, obj=None):
-        return request.user.is_superuser
 
-    @admin.display(description="Users")
-    def people_list(self, obj):
-        return ", ".join(str(person) for person in obj.people.select_related("user"))
-
-    @admin.display(description="Podcasts")
-    def courses_list(self, obj):
-        return ", ".join(str(course) for course in Course.objects.filter(
-            Q(group=obj) | Q(shared_groups=obj)
-        ).distinct())
+class RunLibraryFilter(LibraryFilter):
+    lookup = "course__group"
 
 
 class PersonForm(forms.ModelForm):
+    actor = None
     is_active = forms.BooleanField(
         label="Active", required=False,
         help_text="Inactive users cannot sign in or use the website.",
@@ -77,23 +61,41 @@ class PersonForm(forms.ModelForm):
 
     class Meta:
         model = Profile
-        fields = ("role", "is_active")
+        fields = ("role", "local_admin", "is_active")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance.pk:
             self.fields["is_active"].initial = self.instance.user.is_active
+            if self.instance.user == self.actor:
+                self.fields["local_admin"].disabled = True
+                self.fields["is_active"].disabled = True
 
 
 @admin.register(Profile)
 class PersonAdmin(AuditedAdmin):
     form = PersonForm
-    list_display = ("__str__", "access_role", "active", "last_seen")
-    list_filter = ("user__is_active", "role", "groups")
+    list_display = ("__str__", "access_role", "active", "membership", "last_seen")
+    list_filter = ("user__is_active", "role", "local_admin", "membership", PersonLibraryFilter)
+    list_select_related = ("user",)
+    list_per_page = 50
+    show_full_result_count = False
     search_fields = ("user__first_name", "user__last_name", "user__email", "user__username")
-    readonly_fields = ("user", "entra_groups", "last_seen")
-    fields = ("user", "is_active", "role", "entra_groups", "last_seen")
+    readonly_fields = ("user", "membership", "effective_access", "entra_groups", "last_seen")
+    fields = (
+        "user", "is_active", "role", "local_admin", "membership", "effective_access",
+        "entra_groups", "last_seen",
+    )
     actions = ("make_creator", "make_viewer")
+    ordering = ("user__first_name", "pk")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("user")
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        form.actor = request.user
+        return form
 
     @admin.display(boolean=True, description="Active", ordering="user__is_active")
     def active(self, obj):
@@ -104,10 +106,22 @@ class PersonAdmin(AuditedAdmin):
             obj.user.is_active = form.cleaned_data["is_active"]
             obj.user.save(update_fields=["is_active"])
         super().save_model(request, obj, form, change)
+        if "local_admin" in form.changed_data:
+            if not obj.local_admin:
+                # The next request restores this if the person is still in the Entra group.
+                obj.user.is_superuser = obj.user.is_staff = False
+                obj.user.save(update_fields=["is_superuser", "is_staff"])
+            record(
+                request.user,
+                f"admin.app_admin_{'granted' if obj.local_admin else 'revoked'}",
+                obj, changed_fields=["local_admin"], target_id=obj.user.username,
+            )
 
     @admin.display(description="Role", ordering="role")
     def access_role(self, obj):
-        return "Administrator" if obj.user.is_superuser else obj.get_role_display()
+        if obj.local_admin or obj.user.is_superuser:
+            return "Administrator"
+        return obj.get_role_display()
 
     def has_add_permission(self, request):
         return False
@@ -121,7 +135,28 @@ class PersonAdmin(AuditedAdmin):
     def has_view_permission(self, request, obj=None):
         return request.user.is_superuser
 
-    @admin.display(description="Entra groups")
+    @admin.display(description="Effective library access")
+    def effective_access(self, obj):
+        rows = format_html_join(
+            mark_safe("<br>"), "{}: {}",
+            ((library, ", ".join(sources)) for library, sources in access_sources(obj).items()),
+        )
+        action = format_html(
+            '<a href="{}?profile={}">Add local library access</a> · '
+            '<a href="{}?profile__id__exact={}">History</a>',
+            reverse("admin:app_portal_librarygrant_add"), obj.pk,
+            reverse("admin:app_portal_librarygrant_changelist"), obj.pk,
+        )
+        admin_note = (
+            "Suspended: no access while inactive<br>" if not obj.user.is_active
+            else "Administrator: all enabled libraries<br>"
+            if obj.local_admin or obj.user.is_superuser else ""
+        )
+        return format_html(
+            "{}{}<br>{}", mark_safe(admin_note), rows or "No library access", action,
+        )
+
+    @admin.display(description="Entra groups in the last complete sign-in")
     def entra_groups(self, obj):
         return ", ".join(str(group) for group in obj.groups.all())
 
@@ -149,17 +184,20 @@ class CourseSharingForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["shared_groups"].queryset = EntraGroup.objects.exclude(
-            pk=self.instance.group_id
-        )
+        # Existing shares stay selectable so saving never silently removes an archived library.
+        self.fields["shared_groups"].queryset = EntraGroup.objects.filter(
+            Q(status="enabled") | Q(shared_courses=self.instance)
+        ).exclude(pk=self.instance.group_id).distinct()
 
 
 @admin.register(Course)
 class CourseAdmin(AuditedAdmin):
     form = CourseSharingForm
-    filter_horizontal = ("shared_groups",)
+    autocomplete_fields = ("shared_groups",)
     list_display = ("title", "owning_library", "created_by", "status", "created", "view_page")
-    list_filter = ("group", "shared_groups", "status", "created")
+    list_filter = (OwningLibraryFilter, SharedLibraryFilter, "status", "created")
+    list_per_page = 50
+    show_full_result_count = False
     search_fields = ("title", "created_by__email", "created_by__first_name")
     readonly_fields = (
         "owning_library",
@@ -257,7 +295,9 @@ class CourseAdmin(AuditedAdmin):
 @admin.register(Run)
 class RequestAdmin(admin.ModelAdmin):
     list_display = ("__str__", "requested_by", "task", "status", "created", "correlation_id")
-    list_filter = ("course__group", "status", "task", "created")
+    list_filter = (RunLibraryFilter, "status", "task", "created")
+    list_per_page = 50
+    show_full_result_count = False
     search_fields = (
         "course__title",
         "requested_by__email",
@@ -308,7 +348,7 @@ class RequestAdmin(admin.ModelAdmin):
 @admin.register(LogEntry)
 class ActivityAdmin(admin.ModelAdmin):
     list_display = ("action_time", "actor", "content_type", "object_repr", "summary", "reference")
-    list_filter = ("action_time", "user", "content_type", "action_flag")
+    list_filter = ("action_time", "content_type", "action_flag")
     list_select_related = ("user", "content_type")
     search_fields = ("object_repr", "user__email", "user__first_name", "change_message")
     readonly_fields = tuple(field.name for field in LogEntry._meta.fields)
@@ -318,6 +358,8 @@ class ActivityAdmin(admin.ModelAdmin):
     def actor(self, obj):
         if '"actor_id": "worker"' in obj.change_message:
             return "Worker"
+        if '"actor_id": "operator_cli"' in obj.change_message:
+            return "Operator command"
         return obj.user.get_full_name() or obj.user.email or obj.user.username
 
     @admin.display(description="Action")

@@ -31,7 +31,7 @@ class Command(BaseCommand):
                     (ENGINEERING, "Demo \u2013 Engineering"),
                 ):
                     EntraGroup.objects.update_or_create(
-                        object_id=object_id, defaults={"name": name}
+                        object_id=object_id, defaults={"name": name, "status": "enabled"}
                     )
                 for key, person in PEOPLE.items():
                     user, _ = get_user_model().objects.get_or_create(

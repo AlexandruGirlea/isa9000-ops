@@ -55,18 +55,19 @@ audited by actor, episode, time and correlation ID without logging transcript te
 Creators can choose narration and wording without access to model deployments,
 credentials or another group's content. A run keeps a snapshot of those choices,
 so reopening progress, retrying and recording after review use the same settings.
-There is one account system (Entra), one membership source (Entra groups) and
-one application database (Postgres).
+There is one account system (Entra), one source of directory membership (Entra
+groups, optionally supplemented by audited local grants) and one application
+database (Postgres).
 
 See the [architecture overview](architecture.md) for the main generation path.
 
 ## 2. Pages
 
-People see each Entra group as a **library**.
+People see each enabled Entra group as a **library**.
 Each library contains **podcasts**, each podcast contains episodes, and each
 creation, recording or rendering attempt is a **run**. The standard Django
-admin exposes **Entra groups**, **Podcasts**, **Runs** and **Users**;
-the user UI labels those groups **Libraries**.
+admin exposes **Libraries**, **Local library access**, **Podcasts**, **Runs** and
+**Users**.
 
 Optional podcast descriptions use the standard Vditor rich-text editor (up to
 10,000 characters). Its toolbar offers visual editing, Markdown source, preview,
@@ -87,11 +88,13 @@ used. Third-party notices are included beside the vendored assets. Vditor and
 the Markdown parser are maintained open-source projects without formal LTS release
 lines; Django stays on the 5.2 LTS line.
 
-**Libraries** always opens the library list. It shows a card only when a
-group has podcasts visible to that user: membership in five groups with
-podcasts in two gives two cards. Viewers see ready podcasts; creators also
-see drafts in their accessible groups. **New library** lets creators choose
-an empty Entra group and create its first podcast.
+**Libraries** always opens the library list. It shows a card only when an
+enabled library has podcasts visible to that user: membership in five libraries
+with podcasts in two gives two cards. Viewers see ready podcasts; creators also
+see drafts in their accessible libraries. Creators and administrators also see
+empty libraries with **Show when empty** turned on. **Add podcast** lets creators
+choose any named, enabled library they can access, including a hidden empty one.
+Library and podcast pages show 24 cards per page, with server-side search.
 
 The portal navbar shows **Libraries**, **History** for creators, and **Admin**
 for administrators. Breadcrumbs follow **Libraries → group library → podcast**
@@ -118,22 +121,24 @@ creation, progress, review and management pages; administrators have **Admin**.
 ## 3. Sign-in and access
 
 Entra ID handles sign-in. Django checks the groups in the person's token on
-every request. Super admins are the members of one Entra group, and they make
-people creators in the admin.
+every request. Administrators are the members of one Entra group or people with
+the local **Application administrator** flag, and they make people creators in the
+admin. See [libraries and local access](#libraries-and-local-access).
 
-The admin uses Django's standard layout. Administrators edit group display
-names and viewer/creator roles under **Entra groups** and **Users**. Roles
-persist across sign-ins, and administrators are labelled **Administrator**.
+The admin uses Django's standard layout. Administrators manage libraries and
+viewer/creator roles under **Libraries** and **Users**. Roles persist across
+sign-ins, and administrators are labelled **Administrator**.
 Run results and **Activity** are read-only. Local sign-in uses real Entra tokens;
 the configured admin group controls administrator access in every environment.
 Anonymous protected requests go to sign-in. The only unauthenticated surfaces
 are sign-in/OAuth endpoints, static assets and health; worker callbacks require
 their separate bearer credential. Error pages are standalone and load no app UI.
 
-New users start as viewers. Membership in the configured administrator group grants
-administrator access; other users retain their assigned viewer or creator role.
-Ready podcasts are visible through their owning library or an administrator's sharing
-grant. Drafts and management actions require creator access to the owning library.
+New users start as viewers. Membership in the configured administrator group or the
+local flag grants administrator access; other users retain their assigned viewer or
+creator role. Ready podcasts are visible through their owning library or an
+administrator's sharing grant. Drafts and management actions require creator access
+to the owning library. Podcasts are unavailable while their owning library is not enabled.
 Unauthorized requests return 404. Azure trusts Easy Auth's authenticated identity;
 local Entra sign-in validates tokens directly.
 
@@ -141,6 +146,88 @@ Django's existing `User.is_active` flag is editable through **Admin → Users**.
 New accounts default to active; identity/group synchronization never reactivates
 a disabled user. Inactive accounts are refused on each protected request,
 including requests made with an existing session.
+
+### Libraries and local access
+
+A group becomes a library only when an administrator registers it under **Admin →
+Libraries → Add library** with its Entra object ID and a display name. Sign-ins match
+token group IDs against registered groups and never add rows. The admin list opens on
+enabled libraries; filter by status, display name, review state, content and
+**Show when empty**, or open the *Unnamed, unreviewed, no content* view to review rows
+from earlier releases. Search by name or ID covers every status.
+
+| Library status | In the portal |
+|---|---|
+| **Discovered** | Hidden from everyone; visible only in the admin |
+| **Enabled** | Available to members, local grants and administrators |
+| **Archived** | Pages, media and shares return 404 for everyone; all data is kept and restoring is one status change. Runs already in progress still finish |
+
+Enabling a library requires a display name. Names are labels: access always uses the
+object ID. Administrators get every enabled library in the portal. Admin list sidebars
+offer the first 50 enabled libraries; each library's page links to its people and podcasts.
+
+If you roll back to a release before this one, it creates discovered rows again, and
+podcasts created in them stay hidden after you upgrade. Find them with the **Discovered**
+status and **Owned podcasts** content filters, then enable those libraries.
+
+| Enabled library | Viewer | Creator with access | Administrator |
+|---|---|---|---|
+| Has podcasts visible to that person | Published podcasts | Drafts and published podcasts | Drafts and published podcasts |
+| Empty, **Show when empty** off | Hidden | Hidden, but offered in **Add podcast** | Hidden, but offered in **Add podcast** |
+| Empty, **Show when empty** on | Hidden | Visible | Visible |
+
+Published podcasts shared into a library count as its content. **Show when empty**
+grants no membership or creator rights.
+
+**Admin → Local library access** gives one person access to one enabled library
+without changing Entra. Each record keeps who granted it, the reason, the time, an
+optional expiry and any revocation. Records can be revoked but not edited or deleted.
+You cannot grant access to yourself. A person's access is their current Entra membership
+plus active local grants, and **Admin → Users → the person** shows each source.
+Revoking a local grant cannot remove access that Entra still provides. A local grant
+never changes the viewer/creator role, and it never makes anyone an administrator, even
+when the library's group is the administrator group.
+
+### Group overage
+
+Entra leaves the group list out of a token when a person is in too many groups (above
+200 for these tokens) and sends an overage indicator instead. Such a person can still
+sign in, but the application cannot read their groups: it never calls Microsoft Graph
+and never follows URLs from the token. Their last known memberships are kept for
+diagnosis only and grant nothing. They see a notice with a reference ID. Find them under
+**Admin → Users** with the **Directory membership** filter and give them local library
+access. A token with a missing or unreadable group list is handled the same way. An
+explicit empty list is a complete answer: that person simply has no Entra libraries.
+
+Restricting claims to groups assigned to the application (`groupClaims:
+ApplicationGroup`) reduces overage, subject to Microsoft's licensing and nesting limits.
+
+### Administrator access and recovery
+
+A person is an administrator while their token lists the configured administrator group
+or their **Application administrator** flag is set under **Admin → Users**. Both are
+checked on every request, so a change applies on the person's next request, not at their
+next sign-in. An administrator affected by overage has no token evidence and needs the
+flag. Administrators can set the flag and **Active** for other people but not for
+themselves, and changes are audited. Suspended people stay blocked whatever their flag.
+
+If nobody can reach the admin, an operator with access to the web container can restore
+one identity. The command requires this deployment's tenant ID and the person's Entra
+object ID, and works before their first sign-in. Add `--activate` to also reactivate a
+suspended account. `az containerapp exec` needs an interactive terminal and cannot pass
+arguments through `--command`, so open a shell first:
+
+```bash
+az containerapp exec --resource-group YOUR-GROUP --name YOUR-WEB-APP --command sh
+```
+
+Then, inside that shell:
+
+```bash
+python manage.py app_admin grant --tenant TENANT-ID --object-id OBJECT-ID
+```
+
+Use `app_admin revoke` the same way. Activity shows these changes as **Operator command**.
 
 Application sessions use a two-hour idle timeout and an eight-hour absolute limit.
 Successful navigation/actions and CSRF-protected playback/activity heartbeats
@@ -422,7 +509,7 @@ or real-device background playback.
 
 The local stack supports Entra sign-in and real Foundry generation when configured.
 A completed Azure application deployment is still pending. Before promotion, validate
-Easy Auth claims, private callback routing, managed identities, secret mounts, queue
+Easy Auth claims, worker callback routing, managed identities, secret mounts, queue
 scaling, media access and tracing in dev. Run the current image scan and an approved
 real generation with your organization's model deployments.
 

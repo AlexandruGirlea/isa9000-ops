@@ -6,9 +6,9 @@
 {% block content %}
 <section id="catalog" class="section bg-gray"><div class="container">
 <nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><span>{{ group }}</span></nav>
-<div class="portal-heading"><h1>{{ group }}</h1>{% if creator %}<a class="px-btn px-btn-theme" href="/libraries/{{ group.object_id }}/new/"><i class="bi bi-plus-lg" aria-hidden="true"></i> New podcast</a>{% endif %}</div>
+<div class="portal-heading"><h1>{{ group }}</h1>{% if can_add %}<a class="px-btn px-btn-theme" href="/libraries/{{ group.object_id }}/new/"><i class="bi bi-plus-lg" aria-hidden="true"></i> New podcast</a>{% endif %}</div>
 <p class="portal-intro">Podcasts for {{ group }}. Play a podcast or browse its episodes and transcripts.</p>
-{% if courses %}{% include "catalog_search.html" %}{% endif %}
+{% if courses or query %}{% include "catalog_search.html" %}{% endif %}
 <div id="catalog-cards" class="row g-4">{% for item in courses %}
 <div class="col-md-6 catalog-item"><div class="catalog-card">
   <a class="catalog-card-link" href="/courses/{{ item.course.id }}/?library={{ group.pk }}"><div class="catalog-card-body">
@@ -19,6 +19,7 @@
     {% if item.course.status == 'ready' %}<a class="card-play-btn" href="/courses/{{ item.course.id }}/?autoplay=1&amp;library={{ group.pk }}"><i class="bi bi-play-circle-fill"></i> Play podcast</a><a class="card-browse-btn" href="/courses/{{ item.course.id }}/?library={{ group.pk }}">Browse episodes</a>{% endif %}
     {% if item.can_manage %}<a class="card-browse-btn" href="/courses/{{ item.course.id }}/manage/">Manage</a>{% endif %}
   </div>
-</div></div>{% else %}<div class="col-12"><div class="portal-empty"><i class="bi bi-collection-play fs-2" aria-hidden="true"></i><p class="mt-3 mb-0">No podcasts yet.{% if creator %} Create your first podcast to get started.{% endif %}</p></div></div>{% endfor %}</div>
+</div></div>{% else %}<div class="col-12"><div class="portal-empty"><i class="bi bi-collection-play fs-2" aria-hidden="true"></i><p class="mt-3 mb-0">{% if query %}No podcasts match your search.{% else %}No podcasts yet.{% if can_add %} Create your first podcast to get started.{% endif %}{% endif %}</p></div></div>{% endfor %}</div>
+{% include "catalog_pages.html" %}
 </div></section>
 {% endblock %}

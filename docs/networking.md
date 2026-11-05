@@ -44,6 +44,11 @@ VNet. The network owner must approve subnet sizes, delegation and routing.
 | Worker | Assigned Foundry services, upload/course Blob containers, Service Bus receiver, its two Key Vault secrets, private callback host and telemetry. |
 | Source fetch subprocess | Approved public HTTP/HTTPS sources; no database, metadata service or other private destination. |
 
+With the default public ingress, the worker calls back over the web app's Azure hostname,
+as Azure documents for apps with external ingress. Those routes stay open to the network,
+so each call needs the bearer credential and an encrypted payload. Block `/internal/` at
+your gateway once one is in front of the app.
+
 The worker can read only `callback` and `payload-key` in Key Vault. It has no
 database secret or Django signing key. Sharing the payload key does not grant
 database access. Enforce the database restriction at the network boundary too:

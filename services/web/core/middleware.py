@@ -77,11 +77,14 @@ class RequestMiddleware:
                 action = "admin.access" if request.path.startswith("/admin/") else "http.request"
                 response = self.get_response(request)
                 response["X-Correlation-Id"] = request.correlation_id
+                origin = f"{request.scheme}://{request.get_host()}"
+                # Django's admin JavaScript needs its own translation catalogue to run.
+                catalogue = f" {origin}/admin/jsi18n/" if request.path.startswith("/admin/") else ""
                 response.setdefault(
                     "Content-Security-Policy",
                     "default-src 'self'; "
                     f"script-src 'nonce-{request.csp_nonce}' "
-                    f"{request.scheme}://{request.get_host()}/static/; script-src-attr 'none'; "
+                    f"{origin}/static/{catalogue}; script-src-attr 'none'; "
                     "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
                     "connect-src 'self'; media-src 'self'; font-src 'self'; "
                     "object-src 'none'; frame-src 'none'; base-uri 'none'; "
@@ -147,25 +150,11 @@ class IdentityMiddleware:
         except jwt.ExpiredSignatureError:
             return sessions.signin_required(request, expired=True)
         except (ValueError, TypeError, KeyError, AttributeError, jwt.PyJWTError,
-                requests.RequestException) as error:
-            if str(error) == "Your sign-in has no library groups.":
-                return error_page(
-                    request, 403, "Your sign-in has no library groups. "
-                    "Ask your administrator to assign groups to this app.",
-                )
+                requests.RequestException):
             return error_page(request, 403, "Your sign-in could not be verified.")
         request.audit_actor_id = oid
         trace.get_current_span().set_attribute("enduser.id", oid)
-        superuser = (
-            not person.get("local_test") and bool(settings.ADMIN_GROUP_ID)
-            and settings.ADMIN_GROUP_ID in {str(group) for group in groups}
-        )
-        attributes = {
-            "first_name": person["name"][:150],
-            "email": person["email"][:254],
-            "is_superuser": superuser,
-            "is_staff": superuser,
-        }
+        attributes = {"first_name": person["name"][:150], "email": person["email"][:254]}
         user, _ = get_user_model().objects.get_or_create(
             username=oid,
             defaults={**attributes, "password": make_password(None)},
@@ -175,6 +164,16 @@ class IdentityMiddleware:
             return error_page(
                 request, 403, "Your account is inactive. Contact your administrator."
             )
+        profile, _ = Profile.objects.get_or_create(user=user)
+        user.profile = profile
+        superuser = not person.get("local_test") and (
+            profile.local_admin
+            or (
+                bool(settings.ADMIN_GROUP_ID)
+                and settings.ADMIN_GROUP_ID in {str(group) for group in groups}
+            )
+        )
+        attributes.update(is_superuser=superuser, is_staff=superuser)
         changed = []
         for key, value in attributes.items():
             if getattr(user, key) != value:
@@ -189,12 +188,18 @@ class IdentityMiddleware:
             if settings.AUTH_MODE == "easyauth":
                 request.session.flush()
             sessions.start(request.session, oid, request=request)
-        profile, _ = Profile.objects.get_or_create(user=user)
-        if set(profile.groups.values_list("pk", flat=True)) != groups:
-            EntraGroup.objects.bulk_create(
-                [EntraGroup(object_id=group) for group in groups], ignore_conflicts=True,
+        membership = person.get("membership", "complete")
+        if profile.membership != membership:
+            profile.membership = membership
+            profile.save(update_fields=["membership"])
+            telemetry.audit("auth.membership", actor_id=oid, state=membership)
+        user.directory_groups = set()
+        if membership == "complete":
+            user.directory_groups = set(
+                EntraGroup.objects.filter(pk__in=groups).values_list("pk", flat=True)
             )
-            profile.groups.set(groups)
+            if set(profile.groups.values_list("pk", flat=True)) != user.directory_groups:
+                profile.groups.set(user.directory_groups)
         now = timezone.now()
         if (now - profile.last_seen).total_seconds() >= 300:
             profile.last_seen = now

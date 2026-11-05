@@ -4,7 +4,6 @@ import re
 import uuid
 from copy import deepcopy
 from pathlib import PurePosixPath
-from urllib.parse import quote
 
 from azure.core.exceptions import ResourceNotFoundError
 from core.audit import record
@@ -22,7 +21,6 @@ from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
-from isa9000.presentation_website import _total_duration
 
 from app_portal.covers import CoverForm, update_cover
 from app_portal.forms import ApprovalForm, CreateForm, TitleForm
@@ -33,75 +31,10 @@ from app_portal.permissions import (
     group_for,
     groups_for,
     is_creator,
-    visible_courses,
+    visible_libraries,
 )
 from app_portal.runs import new_run
 from shared import storage
-
-
-@require_safe
-def libraries(request):
-    groups = list(groups_for(request.user))
-    creator = is_creator(request.user)
-    items = []
-    for group in groups:
-        courses = visible_courses(request.user, group)
-        newest = courses.order_by("-updated").first()
-        if newest is None:
-            continue
-        items.append(
-            {
-                "group": group,
-                "count": courses.count(),
-                "updated": newest.updated if newest else None,
-                "cover": f"/media/{newest.id}/{quote(newest.cover)}"
-                if newest and newest.cover
-                else "",
-            }
-        )
-    return page(request, "libraries.html", {"libraries": items, "creator": creator})
-
-
-@require_safe
-def new_library(request):
-    if not is_creator(request.user):
-        raise Http404
-    return page(
-        request,
-        "new_library.html",
-        {"groups": groups_for(request.user).filter(courses__isnull=True)
-         .exclude(shared_courses__status="ready").distinct()},
-    )
-
-
-@require_safe
-def library(request, group_id):
-    group = group_for(request.user, group_id)
-    creator = is_creator(request.user)
-    courses = visible_courses(request.user, group)
-    managed_groups = (
-        set(groups_for(request.user).values_list("pk", flat=True)) if creator else set()
-    )
-    items = []
-    for course in courses:
-        episodes = course.manifest.get("episodes", [])
-        seconds = int(sum(episode.get("seconds") or 0 for episode in episodes))
-        items.append(
-            {
-                "course": course,
-                "can_manage": course.group_id in managed_groups,
-                "episodes": len(episodes),
-                "duration": _total_duration(seconds) if seconds else "",
-                "cover": f"/media/{course.id}/{quote(course.cover)}" if course.cover else "",
-            }
-        )
-    return page(request, "library.html", {"group": group, "courses": items, "creator": creator})
-
-
-@require_safe
-def library_index(request, group_id):
-    group_for(request.user, group_id)
-    return redirect("library", group_id=group_id)
 
 
 @require_safe
@@ -198,6 +131,7 @@ def create(request, group_id):
         "create.html",
         {
             "group": group,
+            "library_listed": visible_libraries(request.user).filter(pk=group.pk).exists(),
             "form": form,
             "max_files": settings.MAX_FILES,
             "max_upload_mb": settings.MAX_UPLOAD_MB,
@@ -352,7 +286,9 @@ def manage(request, course_id):
                         course_id=str(course.id), group_id=str(course.group_id),
                     )
                     course.delete()
-                    return redirect("library", group_id=group_id)
+                    if visible_libraries(request.user).filter(pk=group_id).exists():
+                        return redirect("library", group_id=group_id)
+                    return redirect("libraries")
                 raise ValueError("Choose a podcast action.")
         except ValueError as error:
             return error_page(request, 409, str(error))

@@ -115,9 +115,11 @@ def test_stack_contract(environment):
         "CONNECTION_STRING" not in name or name == "APPLICATIONINSIGHTS_CONNECTION_STRING"
         for name in web_vars | worker_vars
     )
-    assert web_vars["ISA9000_CALLBACK_BASE_URL"]["value"].startswith(
-        f"https://isa9000-{environment}-web.internal."
-    )
+    fqdn = f"isa9000-{environment}-web.mock.eastus2.azurecontainerapps.io"
+    assert web["configuration"]["ingress"]["external"] is True
+    assert web_vars["ISA9000_ALLOWED_HOSTS"]["value"] == fqdn
+    assert web_vars["ISA9000_CALLBACK_BASE_URL"]["value"] == f"https://{fqdn}"
+    assert worker_vars["ISA9000_CALLBACK_BASE_URL"]["value"] == f"https://{fqdn}"
     assert web["configuration"]["ingress"]["allowInsecure"] is False
     assert {probe["type"] for probe in web["template"]["containers"][0]["probes"]} == {
         "Liveness",
@@ -158,6 +160,21 @@ def test_stack_contract(environment):
         assert name in resources
 
 
+def test_metric_alert_uses_azure_serialized_criteria():
+    criteria = run_stack("dev")["resources"]["dead-letter-alert"]["inputs"]["criteria"]
+    assert criteria["odataType"] == "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria"
+    assert criteria["allOf"][0]["criterionType"] == "StaticThresholdCriterion"
+    assert criteria["allOf"][0]["metricName"] == "DeadletteredMessages"
+
+
+def test_postgres_changes_run_one_at_a_time_before_the_web_app():
+    dependencies = run_stack("dev")["dependencies"]
+    assert dependencies["database"] == ["postgres-azure-services"]
+    assert dependencies["require_secure_transport"] == ["database"]
+    assert dependencies["ssl_min_protocol_version"] == ["require_secure_transport"]
+    assert "ssl_min_protocol_version" in dependencies["web"]
+
+
 def test_client_reuses_foundry_auth_and_resource_group():
     result = run_stack(
         "dev",
@@ -182,10 +199,32 @@ def test_client_reuses_foundry_auth_and_resource_group():
     )
     resources = result["resources"]
     assert not {"foundry", "auth-app", "resource-group", "model-text"} & resources.keys()
-    assert resources["worker-foundry"]["inputs"]["principalId"] == "worker-identity-principal"
+    assert "worker-foundry" not in resources
     assert "azure-native:cognitiveservices:listAccountKeys" not in result["calls"]
     variables = resources["worker"]["inputs"]["template"]["containers"][0]["env"]
     assert "ISA9000_AZURE_OPENAI_API_KEY" not in {item["name"] for item in variables}
+
+
+def test_foundry_in_the_application_group_keeps_the_worker_grant():
+    resources = run_stack(
+        "dev",
+        {
+            "isa9000:createResourceGroup": False,
+            "isa9000:resourceGroup": "Existing-Client-Group",
+            "isa9000:foundry": {
+                "endpoint": "https://client.cognitiveservices.azure.com/",
+                "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/"
+                "resourceGroups/existing-client-group/providers/"
+                "Microsoft.CognitiveServices/accounts/client",
+            },
+            "isa9000:models": [
+                {"role": "text", "name": "gpt-6.1-sol"},
+                {"role": "image", "name": "gpt-image-2.5-sunburst"},
+                {"role": "transcribe", "name": "gpt-transcribe"},
+            ],
+        },
+    )["resources"]
+    assert resources["worker-foundry"]["inputs"]["principalId"] == "worker-identity-principal"
 
 
 def test_immutable_image_and_assignment_required():

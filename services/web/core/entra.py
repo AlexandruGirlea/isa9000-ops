@@ -27,6 +27,22 @@ def signing_keys(tenant):
     )
 
 
+def directory_groups(claims):
+    # Entra omits the list above its limit, so an overage token never means "only these groups".
+    # The token's _claim_sources URLs are deliberately never followed.
+    names = claims.get("_claim_names")
+    if claims.get("hasgroups") is True or (isinstance(names, dict) and "groups" in names):
+        return [], "overage"
+    if "groups" not in claims:
+        return [], "missing"
+    try:
+        if not isinstance(claims["groups"], list):
+            raise ValueError
+        return [str(uuid.UUID(group)) for group in claims["groups"]], "complete"
+    except (ValueError, TypeError, AttributeError):
+        return [], "failed"
+
+
 def verified_identity(token):
     tenant = str(uuid.UUID(settings.ENTRA_TENANT_ID))
     client = str(uuid.UUID(settings.ENTRA_CLIENT_ID))
@@ -38,13 +54,15 @@ def verified_identity(token):
         issuer=f"https://login.microsoftonline.com/{tenant}/v2.0",
         options={"require": ["exp", "iat", "iss", "aud", "oid", "tid"]},
     )
-    if claims["tid"] != tenant or not isinstance(claims.get("groups"), list):
-        raise ValueError("Your sign-in has no library groups.")
+    if claims["tid"] != tenant:
+        raise ValueError("Invalid token.")
+    groups, membership = directory_groups(claims)
     return {
         "oid": str(uuid.UUID(claims["oid"])),
         "name": claims.get("name", ""),
         "email": claims.get("preferred_username", ""),
-        "groups": [str(uuid.UUID(group)) for group in claims["groups"]],
+        "groups": groups,
+        "membership": membership,
         "expires": claims["exp"],
     }
 

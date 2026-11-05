@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app_portal import callbacks, descriptions, media, transcripts, views
+from app_portal import callbacks, catalog, descriptions, media, transcripts, views
 from django.contrib import admin
 from django.urls import path
 from django.views.generic import RedirectView
@@ -16,11 +16,11 @@ urlpatterns = [
     path(".auth/logout", entra.logout),
     path("auth/login/aad/callback", entra.callback),
     path("session/activity/", sessions.activity),
-    path("libraries/", views.libraries, name="libraries"),
-    path("libraries/new/", views.new_library, name="new_library"),
+    path("libraries/", catalog.libraries, name="libraries"),
+    path("libraries/new/", catalog.add_podcast, name="add_podcast"),
     path("libraries/index.html", RedirectView.as_view(pattern_name="libraries")),
-    path("libraries/<uuid:group_id>/", views.library, name="library"),
-    path("libraries/<uuid:group_id>/index.html", views.library_index),
+    path("libraries/<uuid:group_id>/", catalog.library, name="library"),
+    path("libraries/<uuid:group_id>/index.html", catalog.library_index),
     path("libraries/<uuid:group_id>/new/", views.create, name="create"),
     path("libraries/<uuid:group_id>/check/", views.check_source, name="check_source"),
     path("libraries/<uuid:group_id>/description-preview/", descriptions.preview),

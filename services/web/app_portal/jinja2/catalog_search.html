@@ -1,28 +1,5 @@
-<form class="portal-search" role="search" hidden>
+<form class="portal-search" role="search" method="get">
   <label for="catalog-search">{{ 'Find a podcast' if group is defined else 'Find a library' }}</label>
-  <div class="portal-search-controls"><input id="catalog-search" type="search" placeholder="{{ 'Search titles and descriptions' if group is defined else 'Search libraries' }}" autocomplete="off" maxlength="200" aria-controls="catalog-cards"><button type="reset">Clear</button></div>
-  <p id="catalog-results" role="status" aria-live="polite"></p>
+  <div class="portal-search-controls"><input id="catalog-search" name="q" type="search" value="{{ query }}" placeholder="{{ 'Search titles and descriptions' if group is defined else 'Search libraries' }}" autocomplete="off" maxlength="200" aria-controls="catalog-cards"><button>Search</button>{% if query %}<a href="?">Clear</a>{% endif %}</div>
+  {% if query %}<p id="catalog-results" role="status" aria-live="polite">{{ pages.paginator.count }} found</p>{% endif %}
 </form>
-<script nonce="{{ request.csp_nonce }}">
-document.addEventListener('DOMContentLoaded', () => {
-  const form = document.querySelector('.portal-search');
-  const input = document.getElementById('catalog-search');
-  const cards = [...document.querySelectorAll('#catalog-cards > .catalog-item')];
-  const label = {{ ('podcast' if group is defined else 'library')|tojson }};
-  const plural = {{ ('podcasts' if group is defined else 'libraries')|tojson }};
-  function filter() {
-    const query = input.value.trim().toLocaleLowerCase();
-    let count = 0;
-    cards.forEach(card => {
-      card.hidden = !card.querySelector('.catalog-text').textContent.toLocaleLowerCase().includes(query);
-      if (!card.hidden) count++;
-    });
-    document.getElementById('catalog-results').textContent = count ? `${count} ${count === 1 ? label : plural}${query ? ' found' : ''}` : 'No matches. Try a different search.';
-  }
-  form.hidden = false;
-  form.addEventListener('submit', event => event.preventDefault());
-  form.addEventListener('reset', () => { input.value = ''; filter(); input.focus(); });
-  input.addEventListener('input', filter);
-  filter();
-});
-</script>

@@ -11,15 +11,21 @@ browser. Employees do not need GitHub, Docker, Python or Azure access.
 ## Administrators: set up the audience
 
 1. Sign in with Microsoft using an account in the configured administrator group.
-2. Open **Admin → Entra groups** and give your team groups readable names.
-   Groups appear when their members sign in.
+2. Open **Admin → Libraries → Add library** for each team. Paste the Entra group's
+   object ID, give it a readable name and save it as **Enabled**. Sign-ins never
+   create libraries, so unrelated directory groups stay out of the way.
 3. Ask prospective creators to sign in once, then set their role under
    **Admin → Users**.
 4. Leave other employees as viewers. Their Entra group memberships determine
    which libraries they can access.
 
-Each Entra group has one library. An empty library appears after its first
-podcast is created; viewers see it after a podcast is published.
+Each enabled library belongs to one Entra group. An empty library appears after
+its first podcast is created; viewers see it after a podcast is published. Turn on
+**Show when empty** to list it for creators and administrators before that.
+
+Someone in too many Entra groups sees a notice with a reference ID instead of their
+libraries. Find them under **Admin → Users** and add **Local library access**; see
+[group overage](operator-guide.md#group-overage).
 
 New accounts are active automatically. To stop someone using the application,
 open **Admin → Users → the person**, clear **Active** and save. This blocks
@@ -45,8 +51,8 @@ already downloaded, including bytes buffered by the player.
 
 ## Creators: turn a document into a podcast
 
-1. Open a library and choose **New podcast**. For a group without podcasts,
-   use **Libraries → New library**.
+1. Open a library and choose **New podcast**. For a library without podcasts,
+   use **Libraries → Add podcast**.
 2. Give it a title and explain the audience and what they should learn.
 3. Upload source documents or add public HTTP/HTTPS links. Upload internal
    documents; links requiring company sign-in are not fetched with your account.

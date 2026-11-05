@@ -43,9 +43,9 @@ class Command(BaseCommand):
                     self.stdout.write("No user found")
                     return
             else:
-                group = EntraGroup.objects.filter(pk=options["group"]).first()
+                group = EntraGroup.objects.filter(pk=options["group"], status="enabled").first()
                 if group is None or str(group.pk) == settings.ADMIN_GROUP_ID:
-                    raise CommandError("Choose an existing library that is not the admin group.")
+                    raise CommandError("Choose an enabled library that is not the admin group.")
                 user = get_user_model().objects.create_user(username=str(uuid.uuid4()))
                 profile = Profile.objects.create(user=user, role="viewer")
                 profile.groups.add(group)

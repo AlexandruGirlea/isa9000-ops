@@ -106,8 +106,8 @@ web_env = variables(
         "ISA9000_AUTH": "easyauth",
         "ISA9000_ENTRA_TENANT_ID": s.tenant,
         "ISA9000_ENTRA_CLIENT_ID": auth_client_id,
-        "ISA9000_ALLOWED_HOSTS": pulumi.Output.concat(edge.azure_host, ",", edge.internal_host),
-        "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat("https://", edge.internal_host),
+        "ISA9000_ALLOWED_HOSTS": edge.azure_host,
+        "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat("https://", edge.azure_host),
         "ISA9000_DAILY_RUNS_PER_USER": str(s.config.get_int("dailyRunsPerUser") or 5),
         "ISA9000_MAX_UPLOAD_MB": str(s.config.get_int("maxUploadMb") or 20),
         "ISA9000_MAX_FILES": str(s.config.get_int("maxFiles") or 10),
@@ -181,7 +181,7 @@ web = app.ContainerApp(
         depends_on=[
             *data.permissions,
             data.database_access,
-            data.database_schema,
+            data.database_ready,
         ]
     ),
     **data.common,
@@ -274,7 +274,7 @@ worker = app.Job(
                         "AZURE_CLIENT_ID": data.worker_identity.client_id,
                         "ISA9000_AZURE_OPENAI_ENDPOINT": data.foundry_endpoint,
                         "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat(
-                            "https://", edge.internal_host
+                            "https://", edge.azure_host
                         ),
                     },
                     worker_secret_env,

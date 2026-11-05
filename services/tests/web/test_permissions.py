@@ -374,7 +374,7 @@ class PermissionTests(PortalCase):
             for model, obj in objects.items():
                 model_admin = admin.site._registry[model]
                 expected = (
-                    False,
+                    superuser and model == EntraGroup,
                     superuser,
                     superuser and model in {EntraGroup, Profile, Course},
                     superuser and model == Course,
@@ -395,8 +395,8 @@ class PermissionTests(PortalCase):
         request = RequestFactory().get("/admin/")
         request.user = self.user
         for model, obj, fields in (
-            (EntraGroup, self.sales, {"name"}),
-            (Profile, self.profile, {"role", "is_active"}),
+            (EntraGroup, self.sales, {"name", "status", "show_when_empty", "reviewed"}),
+            (Profile, self.profile, {"role", "local_admin", "is_active"}),
             (Course, self.course, {"shared_groups"}),
         ):
             with self.subTest(model=model.__name__):
@@ -422,7 +422,7 @@ class PermissionTests(PortalCase):
         worker_updated = timezone.now()
         worker_manifest = {**self.manifest, "description": "Worker completed"}
         marketing = EntraGroup.objects.create(
-            object_id="44444444-4444-4444-8444-444444444444", name="Marketing",
+            object_id="44444444-4444-4444-8444-444444444444", name="Marketing", status="enabled",
         )
         marketing.refresh_from_db()
         original_save = model_admin.save_model

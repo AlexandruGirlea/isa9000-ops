@@ -201,18 +201,22 @@ database_schema = dbforpostgresql.Database(
     server_name=database.name,
     database_name="isa9000",
     charset="UTF8",
+    opts=pulumi.ResourceOptions(depends_on=[database_access]),
 )
+# Azure rejects concurrent changes to one server with ServerIsBusy.
+database_ready = database_schema
 for parameter, value in (
     ("require_secure_transport", "ON"),
     ("ssl_min_protocol_version", "TLSv1.2"),
 ):
-    dbforpostgresql.Configuration(
+    database_ready = dbforpostgresql.Configuration(
         parameter,
         resource_group_name=group_name,
         server_name=database.name,
         configuration_name=parameter,
         value=value,
         source="user-override",
+        opts=pulumi.ResourceOptions(depends_on=[database_ready]),
     )
 database_url = pulumi.Output.all(
     database_password.result, database.fully_qualified_domain_name
@@ -259,4 +263,8 @@ if s.foundry == "create":
 else:
     foundry_endpoint = s.foundry["endpoint"]
     foundry_id = s.foundry["resourceId"]
-grant("worker-foundry", worker_identity, foundry_id, "a97b65f3-24c7-4388-baec-2e87135dc908")
+# An account outside the application group belongs to its owner, who grants the worker access:
+# deployment identities can assign roles only inside their own resource group.
+application_scope = f"/subscriptions/{s.subscription}/resourcegroups/{s.resource_group}/"
+if s.foundry == "create" or foundry_id.lower().startswith(application_scope.lower()):
+    grant("worker-foundry", worker_identity, foundry_id, "a97b65f3-24c7-4388-baec-2e87135dc908")
