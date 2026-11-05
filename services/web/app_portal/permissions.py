@@ -17,7 +17,7 @@ def groups_for(user):
     if user.is_superuser:
         return enabled
     access = Q(pk__in=LibraryGrant.objects.active().filter(profile=user.profile).values("library"))
-    # Only this request's token counts. A stored membership may come from another sign-in.
+    # Only this sign-in's groups count. A stored membership may come from another sign-in.
     if user.directory_groups:
         access |= Q(pk__in=user.directory_groups)
     return enabled.filter(access)

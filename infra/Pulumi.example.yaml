@@ -11,6 +11,9 @@ config:
   isa9000:alertEmail: audio-operations@example.com
   isa9000:authApp: create
   isa9000:groupClaims: SecurityGroup
+  # Asks Microsoft Graph for groups when a token has too many to list. Grant admin consent
+  # first, or Microsoft can block every sign-in; see group overage in docs/operator-guide.md.
+  # isa9000:graphGroups: true
   isa9000:workerMaxExecutions: 5
   isa9000:foundry:
     endpoint: https://YOUR-RESOURCE.cognitiveservices.azure.com/

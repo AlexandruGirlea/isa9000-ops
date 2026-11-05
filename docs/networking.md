@@ -39,7 +39,7 @@ VNet. The network owner must approve subnet sizes, delegation and routing.
 |---|---|
 | Employee browser | Approved application gateway over HTTPS. |
 | Gateway | Web origin only; block internal worker callbacks on public routes. |
-| Django web | PostgreSQL, Blob, Service Bus sender, its Key Vault secrets, Entra signing keys and telemetry. |
+| Django web | PostgreSQL, Blob, Service Bus sender, its Key Vault secrets, Entra signing keys, telemetry and, with `graphGroups`, Microsoft Graph. |
 | Django watchdog | PostgreSQL, its three Key Vault secrets and telemetry. |
 | Worker | Assigned Foundry services, upload/course Blob containers, Service Bus receiver, its two Key Vault secrets, private callback host and telemetry. |
 | Source fetch subprocess | Approved public HTTP/HTTPS sources; no database, metadata service or other private destination. |

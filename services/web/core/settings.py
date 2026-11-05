@@ -24,6 +24,7 @@ ENTRA_REDIRECT_URI = os.environ.get(
 )
 ALLOWED_HOSTS = os.environ.get("ISA9000_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 ADMIN_GROUP_ID = os.environ.get("ISA9000_ADMIN_GROUP_ID", "")
+GRAPH_GROUPS = AUTH_MODE == "easyauth" and os.environ.get("ISA9000_GRAPH_GROUPS") == "true"
 CALLBACK_SECRET = os.environ.get("ISA9000_CALLBACK_SECRET", "")
 CALLBACK_BASE_URL = os.environ.get("ISA9000_CALLBACK_BASE_URL", "http://web:8000").rstrip("/")
 DAILY_RUNS_PER_USER = int(os.environ.get("ISA9000_DAILY_RUNS_PER_USER", "5"))

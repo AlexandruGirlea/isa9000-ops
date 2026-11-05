@@ -164,6 +164,17 @@ class IdentityMiddleware:
             return error_page(
                 request, 403, "Your account is inactive. Contact your administrator."
             )
+        if request.session.get("session_oid") != oid:
+            if settings.AUTH_MODE == "easyauth":
+                request.session.flush()
+            sessions.start(request.session, oid, request=request)
+        if settings.GRAPH_GROUPS and person.get("membership") == "overage":
+            from core.entra import graph_groups
+
+            listed = graph_groups(request, person)
+            if listed is not None:
+                groups = {uuid.UUID(value) for value in listed}
+                person["membership"] = "complete"
         profile, _ = Profile.objects.get_or_create(user=user)
         user.profile = profile
         superuser = not person.get("local_test") and (
@@ -184,10 +195,6 @@ class IdentityMiddleware:
             changed.append("password")
         if changed:
             user.save(update_fields=changed)
-        if request.session.get("session_oid") != oid:
-            if settings.AUTH_MODE == "easyauth":
-                request.session.flush()
-            sessions.start(request.session, oid, request=request)
         membership = person.get("membership", "complete")
         if profile.membership != membership:
             profile.membership = membership
@@ -197,7 +204,7 @@ class IdentityMiddleware:
         if membership == "complete" and set(profile.groups.values_list("pk", flat=True)) != groups:
             # New groups stay hidden until an administrator enables them.
             EntraGroup.objects.bulk_create(
-                [EntraGroup(object_id=group, name=str(group)) for group in groups],
+                [EntraGroup(object_id=group, name=str(group)) for group in sorted(groups)],
                 ignore_conflicts=True,
             )
             profile.groups.set(groups)

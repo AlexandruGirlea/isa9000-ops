@@ -193,26 +193,49 @@ when the library's group is the administrator group.
 
 ### Group overage
 
-Entra leaves the group list out of a token when a person is in too many groups (above
-200 for these tokens) and sends an overage indicator instead. Such a person can still
-sign in, but the application cannot read their groups: it never calls Microsoft Graph
-and never follows URLs from the token. Their last known memberships are kept for
-diagnosis only and grant nothing. They see a notice with a reference ID. Find them under
-**Admin → Users** with the **Directory membership** filter and give them local library
-access. A token with a missing or unreadable group list is handled the same way. An
-explicit empty list is a complete answer: that person simply has no Entra libraries.
+Entra leaves the group list out of a token when a person is in too many groups and sends
+an overage indicator instead. Microsoft documents 200 groups for these tokens, and about 5
+for ID tokens from the implicit part of a hybrid flow. Such a person can still sign in, and
+the application never follows URLs from the token.
+
+With `isa9000:graphGroups: true`, the application asks Microsoft Graph for that person's
+security groups, using their own sign-in and the delegated `User.Read` permission. It checks
+that the access token belongs to the signed-in person and keeps the list until their ID
+token expires, so this is two calls per sign-in. The list works like a token's list,
+including for library access and the administrator group. It is off by default. Turn it on
+in this order:
+
+1. Deploy with the setting off. With `authApp: create`, this declares the delegated Microsoft
+   Graph permissions `openid`, `profile`, `email` and `User.Read` on the sign-in registration.
+   With an existing registration, add them yourself.
+2. An Entra administrator grants admin consent for them on each environment's registration,
+   under **App registrations → API permissions**. Do this before the next step: they are
+   requested at every sign-in, so without consent Microsoft can stop every employee on its
+   own approval page.
+3. Set `isa9000:graphGroups: true` and deploy. It applies from each person's next sign-in. The
+   web app must be able to reach `graph.microsoft.com`.
+
+To undo it, set the value to `false` and deploy.
+
+If the setting is off or a lookup fails, the person sees a notice with a reference ID. A
+failed lookup is tried again after a minute. Their last known memberships are kept for
+diagnosis only and grant nothing. Find them under **Admin → Users** with the **Directory
+membership** filter and give them local library access. A token with a missing or unreadable
+group list gets the same notice and makes no Graph call. An explicit empty list is a complete
+answer: that person simply has no Entra libraries.
 
 `groupClaims` defaults to `SecurityGroup`, which sends each person's security groups, so
 they appear in the admin. `groupClaims: ApplicationGroup` sends only groups assigned to
 the application. That reduces overage, subject to Microsoft's licensing and nesting
-limits, but other groups never appear in the admin.
+limits, but other groups never appear in the admin. With `graphGroups`, a person whose
+token overflows still gets all their security groups from Graph.
 
 ### Administrator access and recovery
 
 A person is an administrator while their token lists the configured administrator group
 or their **Application administrator** flag is set under **Admin → Users**. Both are
 checked on every request, so a change applies on the person's next request, not at their
-next sign-in. An administrator affected by overage has no token evidence and needs the
+next sign-in. An administrator affected by overage needs `isa9000:graphGroups` or the
 flag. Administrators can set the flag and **Active** for other people but not for
 themselves, and changes are audited. Suspended people stay blocked whatever their flag.
 
@@ -446,7 +469,8 @@ secret `AUTH_CLIENT_SECRET`. Register both
 redirect URIs: Microsoft returns people to the landing page after sign-out only if it is
 registered. Enable ID-token issuance for Easy Auth and configure the selected group claims. Set
 **Assignment required** to **No** in the Enterprise application's properties, or only people
-assigned to it can sign in. Use a separate registration
+assigned to it can sign in. For `isa9000:graphGroups`, see
+[group overage](#group-overage). Use a separate registration
 per environment. The local callback is different.
 
 For PR previews, create a protected GitHub environment named `preview` with a

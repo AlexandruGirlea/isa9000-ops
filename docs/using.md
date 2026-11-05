@@ -23,7 +23,7 @@ Each enabled library belongs to one Entra group. An empty library appears after
 its first podcast is created; viewers see it after a podcast is published. Turn on
 **Show when empty** to list it for creators and administrators before that.
 
-Someone in too many Entra groups sees a notice with a reference ID instead of their
+Someone in too many Entra groups can see a notice with a reference ID instead of their
 libraries. Find them under **Admin → Users** and add **Local library access**; see
 [group overage](operator-guide.md#group-overage).
 

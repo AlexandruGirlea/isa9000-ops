@@ -17,6 +17,10 @@
   **Show when empty** is on. **New library** is now **Add podcast**.
 - People whose token has no usable group list (Entra group overage, missing or malformed
   claims) can sign in instead of getting a 403 error. Stale memberships never grant access.
+- New optional `isa9000:graphGroups`: when a token has too many groups to list them, the
+  application asks Microsoft Graph with that person's own sign-in, so their libraries and
+  administrator access work automatically. Off by default. Grant admin consent first, because
+  its permissions are requested at every sign-in; see group overage in the operator guide.
 - Confirmations and notices use the application's own dialogs instead of browser pop-ups, and
   the admin no longer opens pop-up windows for related records.
 - The admin identifies people by name and email.

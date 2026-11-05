@@ -177,7 +177,8 @@ With `authApp: create`, an Entra administrator must grant the three deployment
 identities Microsoft Graph `Application.ReadWrite.OwnedBy`. Pulumi then creates
 a tenant-only sign-in registration with the Azure callback automatically.
 Everyone in the directory, including invited guests, can sign in; libraries still
-depend on their groups.
+depend on their groups. To handle people in too many groups automatically, see
+[group overage](operator-guide.md#group-overage).
 An existing IT-managed registration is an alternative; see
 [registration details](operator-guide.md#11-bootstrap-and-secrets).
 

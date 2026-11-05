@@ -14,6 +14,16 @@ if s.auth_app == "create":
         display_name=s.prefix,
         sign_in_audience="AzureADMyOrg",
         group_membership_claims=[s.group_claims],
+        # What sign-in requests with graphGroups, declared so IT can grant all of it beforehand.
+        required_resource_accesses=[{
+            "resource_app_id": "00000003-0000-0000-c000-000000000000",  # Microsoft Graph
+            "resource_accesses": [
+                {"id": "37f7f235-527c-4136-accd-4a02d197296e", "type": "Scope"},  # openid
+                {"id": "14dad69e-099b-42c9-810b-d002981feec1", "type": "Scope"},  # profile
+                {"id": "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0", "type": "Scope"},  # email
+                {"id": "e1fe6dd8-ba31-4d61-89e7-88639da4683d", "type": "Scope"},  # User.Read
+            ],
+        }],
         owners=[s.client.object_id],
         web={
             "redirect_uris": [
@@ -108,6 +118,7 @@ web_env = variables(
         "ISA9000_AUTH": "easyauth",
         "ISA9000_ENTRA_TENANT_ID": s.tenant,
         "ISA9000_ENTRA_CLIENT_ID": auth_client_id,
+        "ISA9000_GRAPH_GROUPS": str(s.graph_groups).lower(),
         "ISA9000_ALLOWED_HOSTS": edge.azure_host,
         "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat("https://", edge.azure_host),
         "ISA9000_DAILY_RUNS_PER_USER": str(s.config.get_int("dailyRunsPerUser") or 5),
@@ -221,6 +232,10 @@ auth = app.ContainerAppsAuthConfig(
                 "open_id_issuer": f"https://login.microsoftonline.com/{s.tenant}/v2.0",
             },
             "validation": {"allowed_audiences": [auth_client_id]},
+            "login": (
+                {"login_parameters": ["scope=openid profile email User.Read"]}
+                if s.graph_groups else None
+            ),
         }
     },
     http_settings={"require_https": True, "forward_proxy": {"convention": "NoProxy"}},

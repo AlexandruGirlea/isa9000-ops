@@ -5,7 +5,7 @@
 <section id="catalog" class="section bg-gray"><div class="container">
   <div class="portal-heading"><h1>Libraries</h1>{% if creator %}<a class="px-btn px-btn-theme" href="/libraries/new/"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add podcast</a>{% endif %}</div>
   <p class="portal-intro">Listen, read along and learn at your own pace. Each library brings together podcasts shared with that group.</p>
-  {% if directory_unresolved %}<div class="portal-notice" role="status"><p>Your sign-in did not give us a usable list of your groups, so libraries from your Entra groups cannot be shown. Ask your administrator for local library access and quote this reference: <strong>{{ request.user.username }}</strong>.</p></div>{% endif %}
+  {% if directory_unresolved %}<div class="portal-notice" role="status"><p>We could not read your groups from Microsoft, so libraries from your Entra groups cannot be shown. If this is still here after a minute, ask your administrator for local library access and quote this reference: <strong>{{ request.user.username }}</strong>.</p></div>{% endif %}
   {% if libraries or query %}{% include "catalog_search.html" %}{% endif %}
   <div id="catalog-cards" class="row g-4">{% for item in libraries %}
     <div class="col-md-6 catalog-item"><div class="catalog-card"><a class="catalog-card-link" href="/libraries/{{ item.group.object_id }}/"><div class="catalog-card-body">

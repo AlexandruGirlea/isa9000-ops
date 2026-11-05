@@ -52,6 +52,7 @@ alert_email = config.require("alertEmail")
 group_claims = config.get("groupClaims") or "SecurityGroup"
 if group_claims not in {"SecurityGroup", "ApplicationGroup"}:
     raise ValueError("isa9000:groupClaims must be SecurityGroup or ApplicationGroup")
+graph_groups = config.get_bool("graphGroups") or False
 
 auth_app = config.get("authApp") or "create"
 if auth_app != "create":
