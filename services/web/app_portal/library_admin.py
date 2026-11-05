@@ -60,7 +60,6 @@ class LibraryViewFilter(admin.SimpleListFilter):
         return (
             ("enabled", "Enabled"),
             ("discovered", "Hidden"),
-            ("archived", "Archived"),
             ("review", "Unnamed, no content"),
         )
 

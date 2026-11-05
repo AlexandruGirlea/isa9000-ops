@@ -161,9 +161,8 @@ tokens will not list it.
 
 | Library status | In the portal |
 |---|---|
-| **Hidden** | Not shown to anyone in the portal; visible only in the admin |
+| **Hidden** | Nobody can use it in the portal: pages, media and shares return 404 for everyone, including administrators. All data is kept, and restoring is one status change. Runs already in progress still finish |
 | **Enabled** | Available to members, local grants and administrators |
-| **Archived** | Pages, media and shares return 404 for everyone; all data is kept and restoring is one status change. Runs already in progress still finish |
 
 Names are labels: access always uses the Entra group ID. Administrators get every enabled library in the portal. Admin list sidebars
 offer the first 50 enabled libraries; each library's page links to its people and podcasts.

@@ -128,7 +128,7 @@ def test_stack_contract(environment):
     assert worker["configuration"]["replicaTimeout"] == 7200
     assert worker["configuration"]["replicaRetryLimit"] == 0
     scale = worker["configuration"]["eventTriggerConfig"]["scale"]
-    assert scale["maxExecutions"] == (10 if environment == "prod" else 3)
+    assert scale["maxExecutions"] == 5
     assert scale["pollingInterval"] == 10
     assert scale["rules"][0]["identity"] == "/mock/worker-identity"
     assert scale["rules"][0]["metadata"]["messageCount"] == "1"

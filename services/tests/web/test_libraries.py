@@ -97,9 +97,9 @@ class VisibilityTableTests(LibraryCase):
         )
         self.assertTrue(self.listed(self.headers))
 
-    def test_archive_revokes_every_portal_path_and_keeps_data(self):
+    def test_hiding_a_library_revokes_every_portal_path_and_keeps_data(self):
         self.course.shared_groups.add(self.empty)
-        self.sales.status = "archived"
+        self.sales.status = "discovered"
         self.sales.save()
         for headers in (self.headers, viewer(), viewer([OTHER]), administrator()):
             self.assertEqual(self.status(f"/courses/{self.course.id}/", headers), 404)
@@ -116,9 +116,9 @@ class VisibilityTableTests(LibraryCase):
         self.sales.save()
         self.assertEqual(self.status(f"/courses/{self.course.id}/", self.headers), 200)
 
-    def test_archived_shared_library_stops_being_a_path_of_access(self):
+    def test_hidden_shared_library_stops_being_a_path_of_access(self):
         self.course.shared_groups.add(self.engineering)
-        self.engineering.status = "archived"
+        self.engineering.status = "discovered"
         self.engineering.save()
         self.assertEqual(self.status(f"/courses/{self.course.id}/", viewer([ENGINEERING])), 404)
 
@@ -208,6 +208,14 @@ class DirectoryClaimTests(LibraryCase):
 
 
 class MigrationTests(LibraryCase):
+    def test_archived_libraries_become_hidden(self):
+        EntraGroup.objects.filter(pk=self.sales.pk).update(status="archived")
+        migration = importlib.import_module("app_portal.migrations.0007_remove_archived_status")
+        migration.hide_archived_libraries(apps, None)
+        self.sales.refresh_from_db()
+        self.assertEqual(self.sales.status, "discovered")
+        self.assertTrue(Course.objects.filter(group=self.sales).exists())
+
     def test_existing_groups_are_classified_without_losing_anything(self):
         receiving = EntraGroup.objects.create(object_id=uuid.uuid4(), name="Receiving")
         draft_owner = EntraGroup.objects.create(object_id=uuid.uuid4())

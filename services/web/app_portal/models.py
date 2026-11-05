@@ -27,14 +27,13 @@ class EntraGroup(models.Model):
         choices=[
             ("discovered", "Hidden"),
             ("enabled", "Enabled"),
-            ("archived", "Archived"),
         ],
-        help_text="<b>Hidden:</b> not shown to anyone in the portal. Groups appear here "
-        "automatically when a member signs in.<br>"
+        help_text="<b>Hidden:</b> nobody can use it in the portal, including administrators. "
+        "Groups appear here this way automatically when a member signs in. Hiding a library "
+        "stops its pages, audio and shared podcasts. All data is kept, and setting Enabled again "
+        "restores it.<br>"
         "<b>Enabled:</b> a library. Members see it once it has a published podcast, and creators "
-        "can add podcasts to it.<br>"
-        "<b>Archived:</b> its pages, audio and shared podcasts stop working for everyone, "
-        "including administrators. All data is kept, and setting Enabled again restores it.",
+        "can add podcasts to it.",
     )
     show_when_empty = models.BooleanField(
         "show when empty",

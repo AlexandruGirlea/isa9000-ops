@@ -194,7 +194,7 @@ class CourseSharingForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Existing shares stay selectable so saving never silently removes an archived library.
+        # Existing shares stay selectable so saving never silently removes a hidden library.
         self.fields["shared_groups"].queryset = EntraGroup.objects.filter(
             Q(status="enabled") | Q(shared_courses=self.instance)
         ).exclude(pk=self.instance.group_id).distinct()

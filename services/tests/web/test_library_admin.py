@@ -94,10 +94,10 @@ class PortalListingTests(LibraryCase):
         page = self.client.get("/libraries/", **viewer([OTHER]))
         self.assertContains(page, f"/media/{own.id}/own.png")
 
-    def test_shared_library_page_hides_podcasts_of_an_archived_owner(self):
+    def test_shared_library_page_hides_podcasts_of_a_hidden_owner(self):
         self.course.shared_groups.add(self.empty)
         Course.objects.create(group=self.empty, created_by=self.user, status="ready", title="Own")
-        self.sales.status = "archived"
+        self.sales.status = "discovered"
         self.sales.save()
         page = self.client.get(f"/libraries/{OTHER}/", **viewer([OTHER]))
         self.assertContains(page, "Own")
@@ -320,7 +320,6 @@ class AdminCatalogueTests(LibraryCase):
             ({}, everything),
             ({"status": "enabled"}, {self.sales.pk, self.engineering.pk, self.empty.pk}),
             ({"status": "discovered"}, hidden),
-            ({"status": "archived"}, set()),
             ({"status": "review"}, {self.unnamed_idle.pk, self.unnamed_second.pk, admin_group}),
             ({"named": "missing"}, {
                 self.unnamed_idle.pk, self.unnamed_second.pk, self.unnamed_shared.pk,
@@ -358,9 +357,9 @@ class AdminCatalogueTests(LibraryCase):
         page = self.client.get(
             f"/admin/app_portal/entragroup/{self.unnamed_idle.pk}/change/", **administrator(),
         )
-        self.assertContains(page, "<b>Hidden:</b> not shown to anyone")
+        self.assertContains(page, "<b>Hidden:</b> nobody can use it in the portal")
         self.assertContains(page, "<b>Enabled:</b> a library")
-        self.assertContains(page, "<b>Archived:</b> its pages, audio and shared podcasts")
+        self.assertNotContains(page, "Archived")
 
     def test_invalid_filter_values_do_not_fail(self):
         for path, params in (
@@ -471,29 +470,25 @@ class LocalAccessRecordTests(LibraryCase):
         self.assertEqual(self.grant.reason, "Test")
 
     def test_only_enabled_libraries_can_be_granted(self):
-        for status in ("discovered", "archived"):
-            library = EntraGroup.objects.create(
-                object_id=uuid.uuid4(), name="Closed", status=status,
-            )
-            response = self.client.post(
-                "/admin/app_portal/librarygrant/add/",
-                {
-                    "profile": self.profile.pk, "library": str(library.pk), "reason": "No",
-                    "_save": "Save",
-                },
-                **administrator(),
-            )
-            self.assertEqual(response.status_code, 200)
-            self.assertFalse(LibraryGrant.objects.filter(library=library).exists())
-            results = self.client.get(
-                "/admin/autocomplete/",
-                {
-                    "app_label": "app_portal", "model_name": "librarygrant",
-                    "field_name": "library", "term": "Closed",
-                },
-                **administrator(),
-            ).json()["results"]
-            self.assertEqual(results, [])
+        library = EntraGroup.objects.create(
+            object_id=uuid.uuid4(), name="Closed", status="discovered",
+        )
+        response = self.client.post(
+            "/admin/app_portal/librarygrant/add/",
+            {"profile": self.profile.pk, "library": str(library.pk), "_save": "Save"},
+            **administrator(),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(LibraryGrant.objects.filter(library=library).exists())
+        results = self.client.get(
+            "/admin/autocomplete/",
+            {
+                "app_label": "app_portal", "model_name": "librarygrant",
+                "field_name": "library", "term": "Closed",
+            },
+            **administrator(),
+        ).json()["results"]
+        self.assertEqual(results, [])
 
     def test_form_uses_searchable_pickers(self):
         EntraGroup.objects.create(

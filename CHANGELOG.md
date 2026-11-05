@@ -7,8 +7,8 @@
   hidden. Nothing is deleted. Enable further groups under **Admin → Libraries / Entra groups**.
 - Sign-ins list each group under **Admin → Libraries / Entra groups**, hidden and named after its Entra ID.
   Administrators open a group to rename and enable it.
-- Administrators control the library lifecycle: hidden, enabled and archived.
-  Archiving revokes portal access and keeps all data. Empty libraries stay hidden unless
+- Administrators control whether a group is a library: hidden or enabled. Hiding one revokes
+  portal access and keeps all data. Empty libraries stay hidden unless
   **Show when empty** is on. **New library** is now **Add podcast**.
 - People whose token has no usable group list (Entra group overage, missing or malformed
   claims) can sign in instead of getting a 403 error. Stale memberships never grant access.

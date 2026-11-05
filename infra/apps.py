@@ -244,8 +244,7 @@ worker = app.Job(
             "replica_completion_count": 1,
             "scale": {
                 "min_executions": 0,
-                "max_executions": s.config.get_int("workerMaxExecutions")
-                or (10 if s.environment == "prod" else 3),
+                "max_executions": s.config.get_int("workerMaxExecutions") or 5,
                 "polling_interval": s.config.get_int("workerPollingSeconds") or 10,
                 "rules": [
                     {

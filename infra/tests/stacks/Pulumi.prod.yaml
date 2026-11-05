@@ -32,7 +32,7 @@ config:
       format: OpenAI
       sku: MOCK-SKU
       capacity: 100
-  isa9000:workerMaxExecutions: 10
+  isa9000:workerMaxExecutions: 5
   isa9000:workerPollingSeconds: 10
   isa9000:webMinReplicas: 2
   isa9000:webMaxReplicas: 3

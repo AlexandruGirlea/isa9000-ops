@@ -88,9 +88,9 @@ class LocalAccessTests(LibraryCase):
         grant.save()
         self.assertEqual(self.status(f"/courses/{self.course.id}/", self.headers), 200)
 
-    def test_archived_library_ignores_local_grants(self):
+    def test_hidden_library_ignores_local_grants(self):
         self.grant(self.sales)
-        self.sales.status = "archived"
+        self.sales.status = "discovered"
         self.sales.save()
         self.assertEqual(self.status(f"/courses/{self.course.id}/", token(**OVERAGE)), 404)
 
@@ -316,9 +316,9 @@ class AdministratorTests(LibraryCase):
         ).json()["results"]
         self.assertTrue({"Empty library", "Engineering"} <= {item["text"] for item in results})
 
-    def test_saving_keeps_a_share_with_an_archived_library(self):
+    def test_saving_keeps_a_share_with_a_hidden_library(self):
         self.course.shared_groups.add(self.engineering)
-        self.engineering.status = "archived"
+        self.engineering.status = "discovered"
         self.engineering.save()
         response = self.client.post(
             f"/admin/app_portal/course/{self.course.pk}/change/",
