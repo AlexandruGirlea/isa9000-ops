@@ -348,7 +348,7 @@ class AdminCatalogueTests(LibraryCase):
         page = self.client.get(
             f"/admin/app_portal/entragroup/{self.unnamed_idle.pk}/change/", **administrator(),
         )
-        self.assertContains(page, "<b>Discovered:</b> hidden from everyone")
+        self.assertContains(page, "<b>Hidden:</b> not shown to anyone")
         self.assertContains(page, "<b>Enabled:</b> a library")
         self.assertContains(page, "<b>Archived:</b> its pages, audio and shared podcasts")
 

@@ -150,7 +150,7 @@ including requests made with an existing session.
 ### Libraries and local access
 
 When a member signs in, each group in their token appears under **Admin → Libraries**,
-named after its Entra group ID and hidden as **Discovered**. Open the group, change the name
+named after its Entra group ID and set to **Hidden**. Open the group, change the name
 and set the status to **Enabled**. Turn on **Show when empty** to list it before its first
 podcast. Filter by status, display name, review state, content and **Show when empty**, or
 search by name or ID.
@@ -161,7 +161,7 @@ tokens will not list it.
 
 | Library status | In the portal |
 |---|---|
-| **Discovered** | Hidden from everyone; visible only in the admin |
+| **Hidden** | Not shown to anyone in the portal; visible only in the admin |
 | **Enabled** | Available to members, local grants and administrators |
 | **Archived** | Pages, media and shares return 404 for everyone; all data is kept and restoring is one status change. Runs already in progress still finish |
 

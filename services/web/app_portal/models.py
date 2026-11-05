@@ -25,11 +25,11 @@ class EntraGroup(models.Model):
         db_default="discovered",
         db_index=True,
         choices=[
-            ("discovered", "Discovered"),
+            ("discovered", "Hidden"),
             ("enabled", "Enabled"),
             ("archived", "Archived"),
         ],
-        help_text="<b>Discovered:</b> hidden from everyone in the portal. Groups appear here "
+        help_text="<b>Hidden:</b> not shown to anyone in the portal. Groups appear here "
         "automatically when a member signs in.<br>"
         "<b>Enabled:</b> a library. Members see it once it has a published podcast, and creators "
         "can add podcasts to it.<br>"

@@ -39,7 +39,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='entragroup',
             name='status',
-            field=models.CharField(choices=[('discovered', 'Discovered'), ('enabled', 'Enabled'), ('archived', 'Archived')], db_default='discovered', db_index=True, default='discovered', help_text='<b>Discovered:</b> hidden from everyone in the portal. Groups appear here automatically when a member signs in.<br><b>Enabled:</b> a library. Members see it once it has a published podcast, and creators can add podcasts to it.<br><b>Archived:</b> its pages, audio and shared podcasts stop working for everyone, including administrators. All data is kept, and setting Enabled again restores it.', max_length=10),
+            field=models.CharField(choices=[('discovered', 'Hidden'), ('enabled', 'Enabled'), ('archived', 'Archived')], db_default='discovered', db_index=True, default='discovered', help_text='<b>Hidden:</b> not shown to anyone in the portal. Groups appear here automatically when a member signs in.<br><b>Enabled:</b> a library. Members see it once it has a published podcast, and creators can add podcasts to it.<br><b>Archived:</b> its pages, audio and shared podcasts stop working for everyone, including administrators. All data is kept, and setting Enabled again restores it.', max_length=10),
         ),
         migrations.AddField(
             model_name='profile',

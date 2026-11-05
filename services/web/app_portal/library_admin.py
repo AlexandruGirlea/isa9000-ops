@@ -59,7 +59,7 @@ class LibraryViewFilter(admin.SimpleListFilter):
     def lookups(self, request, model_admin):
         return (
             ("enabled", "Enabled"),
-            ("discovered", "Discovered"),
+            ("discovered", "Hidden"),
             ("archived", "Archived"),
             ("review", "Unnamed, unreviewed, no content"),
         )
