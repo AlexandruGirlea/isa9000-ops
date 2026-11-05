@@ -344,6 +344,14 @@ class AdminCatalogueTests(LibraryCase):
         page = self.client.get("/admin/app_portal/entragroup/", **administrator())
         self.assertNotContains(page, 'name="form-0-name"')
 
+    def test_status_help_explains_every_choice(self):
+        page = self.client.get(
+            f"/admin/app_portal/entragroup/{self.unnamed_idle.pk}/change/", **administrator(),
+        )
+        self.assertContains(page, "<b>Discovered:</b> hidden from everyone")
+        self.assertContains(page, "<b>Enabled:</b> a library")
+        self.assertContains(page, "<b>Archived:</b> its pages, audio and shared podcasts")
+
     def test_invalid_filter_values_do_not_fail(self):
         for path, params in (
             ("/admin/app_portal/entragroup/", {"status": "nope", "named": "x", "content": "x"}),

@@ -29,8 +29,12 @@ class EntraGroup(models.Model):
             ("enabled", "Enabled"),
             ("archived", "Archived"),
         ],
-        help_text="Only enabled libraries are available in the portal. "
-        "Archiving revokes portal access and keeps all data.",
+        help_text="<b>Discovered:</b> hidden from everyone in the portal. Groups appear here "
+        "automatically when a member signs in.<br>"
+        "<b>Enabled:</b> a library. Members see it once it has a published podcast, and creators "
+        "can add podcasts to it.<br>"
+        "<b>Archived:</b> its pages, audio and shared podcasts stop working for everyone, "
+        "including administrators. All data is kept, and setting Enabled again restores it.",
     )
     show_when_empty = models.BooleanField(
         "show when empty",
