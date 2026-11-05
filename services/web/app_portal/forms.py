@@ -147,7 +147,9 @@ class CreateForm(GenerationForm):
     uploads = UploadField(
         required=False, widget=UploadWidget(attrs={"accept": ".pdf,.txt,.md,.html"})
     )
-    follow_links = forms.BooleanField(required=False, label="Also read linked pages")
+    follow_links = forms.BooleanField(
+        required=False, label="Also read pages linked from these URLs",
+    )
     text_only = forms.BooleanField(
         required=False, initial=True, label="Review transcripts before recording",
     )

@@ -38,13 +38,14 @@
         <p id="source-error" class="warn" role="alert" hidden>Add at most 20 source links.</p>
       </div>
       {{ form.links.errors }}
+      <label class="toggle">{{ form.follow_links }} Also read pages linked from these URLs</label>
+      <p class="hint" style="margin:4px 0 0">Up to 25 pages from each URL, in the same section of its site. Does not apply to uploaded files.</p>
+      {{ form.follow_links.errors }}
       <div class="upload-area"><label for="id_uploads"><i class="bi bi-upload" aria-hidden="true"></i> Upload documents</label>
         {{ form.uploads }}
         <p class="hint" style="margin:10px 0 0">PDF, TXT, MD or HTML · Up to {{ max_files }} files, {{ max_upload_mb }} MB each</p>
       </div>
       {{ form.uploads.errors }}<p id="upload-error" class="warn" role="alert" hidden></p>
-      <label class="toggle">{{ form.follow_links }} Also read pages linked from each source</label>
-      {{ form.follow_links.errors }}
     </section>
   </div>
   <div class="workspace-column">

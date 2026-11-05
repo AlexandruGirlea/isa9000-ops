@@ -108,6 +108,13 @@ class PortalListingTests(LibraryCase):
         icons = page.index('src="/static/vendor/vditor/dist/js/icons/ant.js" id="vditorIconScript"')
         self.assertLess(icons, page.index('src="/static/vendor/vditor/dist/index.min.js"'))
 
+    def test_linked_pages_option_sits_with_the_urls_and_says_what_it_does(self):
+        page = self.client.get(f"/libraries/{SALES}/new/", **self.headers).content.decode()
+        option = page.index("Also read pages linked from these URLs")
+        self.assertLess(page.index('id="source-editor"'), option)
+        self.assertLess(option, page.index('class="upload-area"'))
+        self.assertIn("Does not apply to uploaded files", page)
+
     def test_title_is_optional_when_creating_a_podcast(self):
         upload = SimpleUploadedFile("handbook.md", b"Handbook")
         with (
