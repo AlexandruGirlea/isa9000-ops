@@ -17,7 +17,9 @@ if s.auth_app == "create":
         owners=[s.client.object_id],
         web={
             "redirect_uris": [
-                pulumi.Output.concat("https://", edge.azure_host, "/.auth/login/aad/callback")
+                pulumi.Output.concat("https://", edge.azure_host, "/.auth/login/aad/callback"),
+                # Microsoft returns people to the landing page after sign-out only if registered.
+                pulumi.Output.concat("https://", edge.azure_host, "/"),
             ],
             "implicit_grant": {"id_token_issuance_enabled": True},
         },

@@ -15,6 +15,8 @@
 - Confirmations and notices use the application's own dialogs instead of browser pop-ups, and
   the admin no longer opens pop-up windows for related records.
 - The admin identifies people by name and email.
+- Signing out returns to the landing page. A registration created by the stack allows this;
+  add `https://YOUR-APP-HOST/` to any existing registration as a web redirect URI.
 - **Contact** lets creators send requests to administrators, who track them in the admin.
 - The podcast title is optional when creating a podcast; without one, isa9000 chooses it.
 - Short podcast descriptions show their formatting on the course page instead of a plain excerpt.

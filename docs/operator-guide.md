@@ -438,9 +438,10 @@ setup, stack configuration, bootstrap, GitHub environment values and promotion.
 
 If IT supplies an existing sign-in registration, configure `isa9000:authApp`
 with its `clientId`; the workflow injects `clientSecret` from the environment
-secret `AUTH_CLIENT_SECRET`. Register
-`https://YOUR-APP-HOST/.auth/login/aad/callback`, enable ID-token issuance for
-Easy Auth and configure the selected group claims. Use a separate registration
+secret `AUTH_CLIENT_SECRET`. Register both
+`https://YOUR-APP-HOST/.auth/login/aad/callback` and `https://YOUR-APP-HOST/` as web
+redirect URIs: Microsoft returns people to the landing page after sign-out only if it is
+registered. Enable ID-token issuance for Easy Auth and configure the selected group claims. Use a separate registration
 per environment. The local callback is different.
 
 For PR previews, create a protected GitHub environment named `preview` with a
