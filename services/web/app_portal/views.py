@@ -40,6 +40,10 @@ CANCEL_WARNING = (
     "Cancel processing? This stops the run and deletes any transcripts and recordings it has "
     "created so far. It cannot be resumed."
 )
+HISTORY_LABELS = {
+    "queued": "Queued", "running": "In progress", "ready": "Ready", "needs_review": "Needs review",
+    "failed": "Failed", "stopped": "User canceled", "draft": "Draft",
+}
 FAILURE_MESSAGE = (
     "Something went wrong and this podcast could not be finished. "
     "Your administrators have been notified."
@@ -158,6 +162,32 @@ def check_source(request, group_id):
     return JsonResponse({"ok": True, "detail": "Valid public URL"})
 
 
+def history_row(course):
+    run = next(iter(course.history_runs), None)
+    status = run.status if run and run.status != "ready" else course.status
+    if status == "needs_review":
+        action, url = "Review transcripts", f"/courses/{course.id}/manage/"
+    elif run:
+        action = (
+            "View progress" if status in {"queued", "running"}
+            else "View result" if status == "ready" else "View details"
+        )
+        url = f"/runs/{run.id}/"
+    elif status == "ready":
+        action, url = "View podcast", f"/courses/{course.id}/"
+    else:
+        action, url = "Edit podcast", f"/courses/{course.id}/manage/"
+    return {
+        "id": str(course.id),
+        "title": course.title or "Podcast in progress",
+        "status": status,
+        "label": HISTORY_LABELS.get(status, "Draft"),
+        "canceled_by": run.canceled_by_name if run and status == "stopped" else "",
+        "action": action,
+        "url": url,
+    }
+
+
 @require_safe
 def history(request):
     if not is_creator(request.user):
@@ -165,6 +195,7 @@ def history(request):
     courses = (
         Course.objects.filter(created_by=request.user, group__in=groups_for(request.user))
         .select_related("group")
+        .defer("html", "manifest", "generation_settings")
         .prefetch_related(
             Prefetch(
                 "runs",
@@ -179,11 +210,11 @@ def history(request):
         )
         .order_by("-created", "-id")
     )
-    return page(
-        request,
-        "history.html",
-        {"courses": Paginator(courses, 10).get_page(request.GET.get("page"))},
-    )
+    pages = Paginator(courses, 10).get_page(request.GET.get("page"))
+    rows = [(course, history_row(course)) for course in pages]
+    if request.headers.get("Accept") == "application/json":
+        return JsonResponse({"rows": [row for _, row in rows]})
+    return page(request, "history.html", {"courses": pages, "rows": rows})
 
 
 @require_http_methods(["GET", "POST"])

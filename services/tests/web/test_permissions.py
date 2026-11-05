@@ -315,7 +315,7 @@ class PermissionTests(PortalCase):
         listing = self.client.get(f"/libraries/{SALES}/", **self.headers)
         self.assertContains(listing, f'class="catalog-card-link" href="{path}?library={SALES}"')
         history = self.client.get("/runs/", **self.headers)
-        self.assertContains(history, f'<a href="{path}">New podcast</a>')
+        self.assertContains(history, f'href="{path}">New podcast</a>')
         draft.status = "needs_review"
         draft.save()
         self.assertEqual(self.client.get(path, **self.headers).url, f"{path}manage/")
