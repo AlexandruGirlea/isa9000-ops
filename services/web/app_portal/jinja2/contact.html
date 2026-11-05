@@ -21,7 +21,4 @@
 </div></div></div></section>
 {% endblock %}
 {% block extra_js %}{{ super() }}{% include "description_editor.html" %}
-{% if sent %}<script nonce="{{ request.csp_nonce }}">
-window.alert('Thank you. Your request was sent to your administrators.');
-location.replace('/libraries/');
-</script>{% endif %}{% endblock %}
+{% endblock %}

@@ -6,6 +6,7 @@ from core.audit import record
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.models import ADDITION
+from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
 from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import redirect
@@ -15,6 +16,14 @@ from django.utils.html import format_html
 
 from app_portal.models import Course, EntraGroup, LibraryGrant, Profile
 from app_portal.permissions import count_of
+
+
+def without_popup_links(form):
+    for field in form.base_fields.values():
+        if isinstance(field.widget, RelatedFieldWidgetWrapper):
+            field.widget.can_add_related = field.widget.can_change_related = False
+            field.widget.can_view_related = field.widget.can_delete_related = False
+    return form
 
 
 class AuditedAdmin(admin.ModelAdmin):
@@ -302,7 +311,7 @@ class LibraryGrantAdmin(AuditedAdmin):
         return fields
 
     def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
+        form = without_popup_links(super().get_form(request, obj, **kwargs))
         form.actor = request.user
         return form
 

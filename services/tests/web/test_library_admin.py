@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import timedelta
+from pathlib import Path
 from unittest import skipUnless
 from unittest.mock import patch
 
+import app_portal as portal
 import jwt
 from app_portal.library_admin import LibraryGrantForm
 from app_portal.models import Course, EntraGroup, LibraryGrant, Profile, Run
@@ -191,10 +194,14 @@ class RunOutcomeTests(LibraryCase):
         self.assertTrue(LogEntry.objects.filter(
             object_id=str(self.run.pk), change_message__contains="run.canceled",
         ).exists())
-        self.assertContains(self.client.get(path, **self.headers), "by A Person")
+        self.assertContains(
+            self.client.get(path, **self.headers), "by A Person (a@example.invalid)",
+        )
         history = self.client.get("/runs/", **self.headers)
         self.assertContains(history, "User canceled")
-        self.assertContains(history, '<span class="history-canceled-by">by A Person</span>')
+        self.assertContains(
+            history, '<span class="history-canceled-by">by A Person (a@example.invalid)</span>',
+        )
 
 
 class AuditTrailTests(LibraryCase):
@@ -206,7 +213,7 @@ class AuditTrailTests(LibraryCase):
             f"/admin/app_portal/course/{self.course.pk}/change/", **administrator(),
         )
         self.assertContains(page, "Last edited by")
-        self.assertContains(page, "A Person, ")
+        self.assertContains(page, "A Person (a@example.invalid), ")
         self.assertNotContains(page, f"<div class=\"readonly\">{self.user.username}</div>")
         entry = LogEntry.objects.first()
         for path, method in (
@@ -228,6 +235,27 @@ class AuditTrailTests(LibraryCase):
         ):
             with self.assertRaisesMessage(DatabaseError, "cannot be changed"), transaction.atomic():
                 change()
+
+
+class BrowserPopupTests(LibraryCase):
+    def test_portal_code_never_opens_a_browser_dialog(self):
+        root = Path(portal.__file__).parent
+        files = [*(root / "jinja2").glob("*.html"), root / "static" / "session.js"]
+        native = re.compile(r"(?:(?<![\w.])|window\.)(?:alert|confirm|prompt)\(")
+        self.assertGreater(len(files), 5)
+        for file in files:
+            with self.subTest(file=file.name):
+                self.assertIsNone(native.search(file.read_text()))
+
+    def test_admin_forms_have_no_popup_window_links(self):
+        for path in (
+            f"/admin/app_portal/course/{self.course.pk}/change/",
+            "/admin/app_portal/librarygrant/add/",
+        ):
+            with self.subTest(path=path):
+                page = self.client.get(path, **administrator())
+                self.assertContains(page, "admin-autocomplete")
+                self.assertNotContains(page, "add-related")
 
 
 class SignOutTests(LibraryCase):

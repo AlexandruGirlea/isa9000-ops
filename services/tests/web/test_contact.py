@@ -33,7 +33,7 @@ class ContactFormTests(LibraryCase):
         self.assertContains(page, 'data-description-preview="/contact/description-preview/"')
         self.assertContains(page, "/static/vendor/vditor/dist/index.min.js")
         self.assertNotContains(page, "What will listeners learn")
-        self.assertNotContains(page, "window.alert")
+        self.assertNotContains(page, "portal-toast")
 
     def test_sending_saves_who_when_and_what_then_shows_the_popup(self):
         response = self.client.post(
@@ -44,7 +44,7 @@ class ContactFormTests(LibraryCase):
             },
             **self.headers,
         )
-        self.assertEqual(response.url, "/contact/?sent=1")
+        self.assertEqual(response.url, "/libraries/")
         item = ContactRequest.objects.get()
         self.assertEqual(item.body, "Library for **Finance**")
         self.assertEqual(item.created_by, self.user)
@@ -55,7 +55,10 @@ class ContactFormTests(LibraryCase):
         self.assertTrue(
             LogEntry.objects.filter(change_message__contains="contact.created").exists()
         )
-        self.assertContains(self.client.get(response.url, **self.headers), "window.alert")
+        page = self.client.get(response.url, **self.headers)
+        self.assertContains(page, 'class="portal-toast"')
+        self.assertContains(page, "Your request was sent to your administrators.")
+        self.assertNotContains(self.client.get(response.url, **self.headers), "portal-toast")
 
     def test_empty_and_oversized_requests_are_refused(self):
         for body in ("", "   ", "x" * 10001):
@@ -77,6 +80,17 @@ class ContactAdminTests(LibraryCase):
             body="Library for <script>alert(1)</script> **Finance**", created_by=self.user,
         )
         self.path = f"/admin/app_portal/contactrequest/{self.item.pk}/change/"
+
+    def test_admin_identifies_people_by_name_and_email(self):
+        self.client.get("/libraries/", **self.headers)
+        page = self.client.get(self.path, **administrator())
+        self.assertContains(page, "A Person (a@example.invalid)")
+        listing = self.client.get("/admin/app_portal/contactrequest/", **administrator())
+        self.assertContains(listing, "A Person (a@example.invalid)")
+        found = self.client.get(
+            "/admin/app_portal/contactrequest/", {"q": "a@example.invalid"}, **administrator(),
+        )
+        self.assertContains(found, f"Request {self.item.pk}")
 
     def test_message_is_formatted_and_cannot_inject_script(self):
         page = self.client.get(self.path, **administrator())

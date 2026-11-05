@@ -1,0 +1,12 @@
+{% set notices = get_messages(request) %}{% if notices %}<style>
+.portal-toasts { position: fixed; top: 92px; left: 50%; z-index: 1080; width: min(420px, calc(100vw - 24px)); transform: translateX(-50%); }
+.portal-toast { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1px solid var(--card-border); border-radius: 12px; background: var(--card-bg); color: var(--text); box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
+.portal-toast > i { color: #176b43; font-size: 1.1rem; line-height: 1.4; }
+[data-theme="dark"] .portal-toast > i { color: #8de4b5; }
+.portal-toast > span { flex: 1; overflow-wrap: anywhere; }
+.portal-toast > button { border: 0; padding: 0; background: none; color: var(--text-muted-custom); line-height: 1.4; }
+@media (prefers-reduced-motion: no-preference) { .portal-toast { animation: portal-toast-in .25s ease-out; } }
+@keyframes portal-toast-in { from { opacity: 0; transform: translateY(-8px); } }
+@media (max-width: 575px) { .portal-toasts { top: auto; bottom: 12px; } }
+</style>
+<div class="portal-toasts" role="status" aria-live="polite">{% for message in notices %}<div class="portal-toast"><i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>{{ message }}</span><button type="button" aria-label="Dismiss"><i class="bi bi-x-lg" aria-hidden="true"></i></button></div>{% endfor %}</div>{% endif %}

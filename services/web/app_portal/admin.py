@@ -19,7 +19,7 @@ from django.utils.functional import lazy
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
-from app_portal.library_admin import AuditedAdmin, LibraryFilter
+from app_portal.library_admin import AuditedAdmin, LibraryFilter, without_popup_links
 from app_portal.models import (
     ContactRequest,
     Course,
@@ -234,6 +234,9 @@ class CourseAdmin(AuditedAdmin):
         ("Manifest", {"fields": ("manifest",), "classes": ("collapse",)}),
     )
 
+    def get_form(self, request, obj=None, **kwargs):
+        return without_popup_links(super().get_form(request, obj, **kwargs))
+
     def has_add_permission(self, request):
         return False
 
@@ -423,7 +426,7 @@ class ActivityAdmin(admin.ModelAdmin):
             return "Worker"
         if '"actor_id": "operator_cli"' in obj.change_message:
             return "Operator command"
-        return obj.user.get_full_name() or obj.user.email or obj.user.username
+        return person_name(obj.user)
 
     @admin.display(description="Action")
     def summary(self, obj):

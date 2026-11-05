@@ -9,7 +9,10 @@ from django.utils import timezone
 
 
 def person_name(user):
-    return user.get_full_name() or user.email or user.username
+    name = user.get_full_name()
+    if name and user.email:
+        return f"{name} ({user.email})"
+    return name or user.email or user.username
 
 
 class EntraGroup(models.Model):

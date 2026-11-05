@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from core.audit import record
 from core.views import page
+from django.contrib import messages
 from django.contrib.admin.models import ADDITION
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect
-from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 from app_portal.forms import ContactForm
@@ -25,5 +25,6 @@ def contact(request):
                 body=form.cleaned_data["description"], created_by=request.user,
             )
             record(request.user, "contact.created", item, flag=ADDITION)
-        return redirect(f"{reverse('contact')}?sent=1")
-    return page(request, "contact.html", {"form": form, "sent": "sent" in request.GET})
+        messages.success(request, "Thank you. Your request was sent to your administrators.")
+        return redirect("libraries")
+    return page(request, "contact.html", {"form": form})
