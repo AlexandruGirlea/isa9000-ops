@@ -193,13 +193,14 @@ class IdentityMiddleware:
             profile.membership = membership
             profile.save(update_fields=["membership"])
             telemetry.audit("auth.membership", actor_id=oid, state=membership)
-        user.directory_groups = set()
-        if membership == "complete":
-            user.directory_groups = set(
-                EntraGroup.objects.filter(pk__in=groups).values_list("pk", flat=True)
+        user.directory_groups = groups if membership == "complete" else set()
+        if membership == "complete" and set(profile.groups.values_list("pk", flat=True)) != groups:
+            # New groups stay hidden until an administrator enables them.
+            EntraGroup.objects.bulk_create(
+                [EntraGroup(object_id=group, name=str(group)) for group in groups],
+                ignore_conflicts=True,
             )
-            if set(profile.groups.values_list("pk", flat=True)) != user.directory_groups:
-                profile.groups.set(user.directory_groups)
+            profile.groups.set(groups)
         now = timezone.now()
         if (now - profile.last_seen).total_seconds() >= 300:
             profile.last_seen = now
@@ -212,7 +213,7 @@ class IdentityMiddleware:
             request.headers.get("Accept") != "application/json" or request.method != "GET"
         ):
             now = time.time()
-            if now - request.session["last_activity"] >= 60:
+            if now - request.session.get("last_activity", now) >= 60:
                 request.session["last_activity"] = now
                 request.session.set_expiry(max(
                     1, int(request.session["signed_in_at"] + settings.SESSION_MAX_AGE - now),

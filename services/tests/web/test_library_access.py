@@ -8,7 +8,6 @@ from app_portal.models import Course, EntraGroup, LibraryGrant, Profile
 from core.dev import ENGINEERING, SALES
 from django.contrib.admin.models import LogEntry
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
@@ -225,24 +224,19 @@ class AdministratorTests(LibraryCase):
         call_command("app_admin", "revoke", *arguments, stdout=StringIO())
         self.assertEqual(self.status("/admin/", overage), 404)
 
-    def test_admin_registers_and_enables_a_library_with_a_required_name(self):
+    def test_admin_adds_a_library_and_a_blank_name_becomes_the_group_id(self):
         new = str(uuid.uuid4())
         form = {"object_id": new, "name": "  ", "status": "enabled", "_save": "Save"}
         response = self.client.post("/admin/app_portal/entragroup/add/", form, **administrator())
-        self.assertContains(response, "Enter a display name")
-        form["name"] = " Finance "
-        response = self.client.post("/admin/app_portal/entragroup/add/", form, **administrator())
         self.assertEqual(response.status_code, 302)
         library = EntraGroup.objects.get(pk=new)
-        self.assertEqual((library.name, library.status), ("Finance", "enabled"))
+        self.assertEqual((library.name, library.status), (new, "enabled"))
         self.assertTrue(LogEntry.objects.filter(change_message__contains="admin.add").exists())
         form["name"] = "Copy"
         self.assertContains(
             self.client.post("/admin/app_portal/entragroup/add/", form, **administrator()),
             "already exists",
         )
-        with self.assertRaises(ValidationError):
-            EntraGroup(object_id=uuid.uuid4(), name="", status="enabled").full_clean()
 
     def test_grant_form_records_grantor_blocks_self_and_reopens_expired(self):
         self.client.get("/libraries/", **administrator())

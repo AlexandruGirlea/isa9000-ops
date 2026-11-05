@@ -279,8 +279,8 @@ production acceptance.
 Open the dev `webUrl` and complete [Create and listen](using.md):
 
 1. Confirm Microsoft sign-in and administrator access using real work accounts.
-2. Under **Admin → Libraries**, register and enable the pilot group using its object
-   ID, assign a creator and publish one small approved podcast.
+2. After a pilot member signs in, name the group under **Admin → Libraries** and set it to
+   **Enabled**. Assign a creator and publish one small approved podcast.
 3. Confirm that a viewer in that group can play it, read transcripts and seek audio.
 4. Confirm that someone outside the group cannot open its pages or request media.
 5. Check the logo, name, review workflow, run history and failure messages.

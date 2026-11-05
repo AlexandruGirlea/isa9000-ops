@@ -149,12 +149,15 @@ including requests made with an existing session.
 
 ### Libraries and local access
 
-A group becomes a library only when an administrator registers it under **Admin →
-Libraries → Add library** with its Entra object ID and a display name. Sign-ins match
-token group IDs against registered groups and never add rows. The admin list opens on
-enabled libraries; filter by status, display name, review state, content and
-**Show when empty**, or open the *Unnamed, unreviewed, no content* view to review rows
-from earlier releases. Search by name or ID covers every status.
+When a member signs in, each group in their token appears under **Admin → Libraries**,
+named after its Entra group ID and hidden as **Discovered**. Open the group, change the name
+and set the status to **Enabled**. Turn on **Show when empty** to list it before its first
+podcast. Filter by status, display name, review state, content and **Show when empty**, or
+search by name or ID.
+
+For a group nobody has signed in with yet, use **Add library** with its Entra group ID. With
+`groupClaims: ApplicationGroup`, also assign the group to the application, or its members'
+tokens will not list it.
 
 | Library status | In the portal |
 |---|---|
@@ -162,13 +165,12 @@ from earlier releases. Search by name or ID covers every status.
 | **Enabled** | Available to members, local grants and administrators |
 | **Archived** | Pages, media and shares return 404 for everyone; all data is kept and restoring is one status change. Runs already in progress still finish |
 
-Enabling a library requires a display name. Names are labels: access always uses the
-object ID. Administrators get every enabled library in the portal. Admin list sidebars
+Names are labels: access always uses the Entra group ID. Administrators get every enabled library in the portal. Admin list sidebars
 offer the first 50 enabled libraries; each library's page links to its people and podcasts.
 
-If you roll back to a release before this one, it creates discovered rows again, and
-podcasts created in them stay hidden after you upgrade. Find them with the **Discovered**
-status and **Owned podcasts** content filters, then enable those libraries.
+If you roll back to a release before this one, podcasts created in new groups stay hidden
+after you upgrade. Find them with the **Discovered** status and **Owned podcasts** content
+filters, then enable those libraries.
 
 | Enabled library | Viewer | Creator with access | Administrator |
 |---|---|---|---|
@@ -269,10 +271,14 @@ it to the library. Without that option, a successful generation records and
 publishes automatically. Engine review failures still stop for review. Viewers
 only see ready podcasts. Saved settings follow recording and retries, and the
 shared configuration is never rewritten by a creator.
-If a stopped transcripts-first run already saved its transcripts, **Review saved
-transcripts** restores the review screen without generating or recording again.
+**Cancel processing** asks for confirmation, then stops the run and deletes any transcripts
+and recordings it created. It cannot be resumed; **Retry** starts again. Existing transcripts
+and published audio stay, and uploaded source documents stay until they expire. History shows
+**User canceled**, and the run page shows who did it.
 
-Progress shows saved steps, activity, elapsed time and Stop/Retry controls.
+Progress shows saved steps, elapsed time and Cancel/Retry controls. When a run fails, creators
+see a short message and a reference; administrators find the full error and activity log under
+**Admin → Runs**.
 While queued or running, the browser polls Django every 1.5 seconds;
 leaving and reopening the page restores the saved progress. This is JSON
 polling, not a streaming connection to the CLI. The local FastAPI generation
@@ -296,8 +302,7 @@ The watchdog fails runs with no worker after 15 minutes or no heartbeat for 5 mi
 A podcast starts `draft`. Successful creation makes it `ready` or `needs_review`;
 recording approved transcripts makes it `ready`. Editing published transcripts returns
 it to `needs_review` until approved and recorded again. A render updates its page.
-Failed or stopped runs do not change the podcast's status. A creator can also restore
-review from saved transcripts after a stopped transcripts-first run.
+Failed or canceled runs do not change the podcast's status.
 
 ## 5. Deleting an episode
 
@@ -344,6 +349,11 @@ Entra object IDs; names, emails, source content and OAuth codes are excluded.
 Telemetry uses managed identity with Monitoring Metrics Publisher access scoped
 to the Application Insights resource. Local-key ingestion is disabled, with
 100% sampling. Retention defaults to 365 days in prod and 30 days in dev/test.
+**Admin → Activity** records who created, edited, shared, canceled and deleted what, and each
+podcast shows who last edited it. Administrators can read these records but not add, change or
+delete them, and a PostgreSQL trigger refuses updates and deletes. A database owner can still
+remove that trigger, so this is not a tamper-proof ledger.
+
 Application Insights is independent of database edits, but it is not an immutable
 ledger: Azure administrators control retention and purge permissions. Direct SQL
 changes bypass application auditing. Azure ingestion and access controls still

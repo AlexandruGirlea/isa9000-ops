@@ -8,6 +8,7 @@ from django.middleware.csrf import rotate_token
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
 
+EASY_AUTH_LOGOUT = "/.auth/logout?post_logout_redirect_uri=/"
 
 def start(session, oid, *, request=None):
     now = time.time()
@@ -30,7 +31,7 @@ def expired(session):
 
 def signin_required(request, *, expired=False):
     target = (
-        "/.auth/logout?post_logout_redirect_uri=/"
+        EASY_AUTH_LOGOUT
         if expired and settings.AUTH_MODE == "easyauth" else
         settings.LOGIN_URL if settings.AUTH_MODE == "easyauth" else "/"
     )

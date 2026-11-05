@@ -36,6 +36,15 @@ from app_portal.permissions import (
 from app_portal.runs import new_run
 from shared import storage
 
+CANCEL_WARNING = (
+    "Cancel processing? This stops the run and deletes any transcripts and recordings it has "
+    "created so far. It cannot be resumed."
+)
+FAILURE_MESSAGE = (
+    "Something went wrong and this podcast could not be finished. "
+    "Your administrators have been notified."
+)
+
 
 @require_safe
 def course_page(request, course_id):
@@ -159,7 +168,11 @@ def history(request):
         .prefetch_related(
             Prefetch(
                 "runs",
-                queryset=Run.objects.only("id", "course_id", "status", "created")
+                queryset=Run.objects.select_related("canceled_by")
+                .only(
+                    "id", "course_id", "status", "created", "canceled_by__first_name",
+                    "canceled_by__last_name", "canceled_by__email", "canceled_by__username",
+                )
                 .order_by("-created", "-id"),
                 to_attr="history_runs",
             )
@@ -329,12 +342,14 @@ def run_page(request, run_id):
                 run = Run.objects.select_for_update().get(pk=run.id)
                 action = request.POST.get("action")
                 if action == "stop" and run.status in {"queued", "running"}:
-                    run.cancel_requested = True
+                    run.cancel_requested, run.canceled_by = True, request.user
                     if run.status == "queued":
                         run.status, run.finished = "stopped", timezone.now()
-                    run.save(update_fields=["cancel_requested", "status", "finished"])
+                    run.save(
+                        update_fields=["cancel_requested", "canceled_by", "status", "finished"]
+                    )
                     record(
-                        request.user, "run.stop_requested", run,
+                        request.user, "run.canceled", run,
                         changed_fields=["cancel_requested"],
                         run_id=str(run.id), course_id=str(course.id),
                         operation_correlation_id=run.correlation_id,
@@ -384,7 +399,7 @@ def run_page(request, run_id):
         "needs_review": "Awaiting your approval",
     }.get(run.status, run.get_status_display())
     if run.cancel_requested and run.status == "running":
-        status_label = "Stopping and saving your work…"
+        status_label = "Canceling…"
     historical_review = run.status == "needs_review" and (
         run.course.status == "ready" or active_run is not None
     )
@@ -402,14 +417,17 @@ def run_page(request, run_id):
         run.text_only or run.course.status == "needs_review"
         or run.course.manifest.get("review", {}).get("approved") is False
     ) and run.course.status != "ready"
+    # Raw errors and engine output stay in the admin; they can expose internal details.
+    failure = FAILURE_MESSAGE if run.status == "failed" else ""
+    activity = run.log if request.user.is_superuser else []
     if request.headers.get("Accept") == "application/json":
         return JsonResponse(
             {
                 "status": run.status,
                 "label": status_label,
                 "steps": steps,
-                "log": run.log,
-                "error": run.error,
+                "log": activity,
+                "error": failure,
                 "cancel_requested": run.cancel_requested,
             }
         )
@@ -417,7 +435,8 @@ def run_page(request, run_id):
         request,
         "run.html",
         {
-            "run": run, "messages": run.log, "active": run.status in {"queued", "running"},
+            "run": run, "messages": activity, "failure": failure, "cancel_warning": CANCEL_WARNING,
+            "active": run.status in {"queued", "running"},
             "status_label": status_label, "steps": steps, "course": run.course,
             "review_retry": review_retry,
             "approval_form": ApprovalForm(initial={"revision": run.course.updated.isoformat()}),

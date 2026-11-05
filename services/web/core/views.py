@@ -72,7 +72,9 @@ def not_found(request, exception=None):
 
 
 def server_error(request):
-    return error_page(request, 500, "Something went wrong. Please try again.")
+    return error_page(
+        request, 500, "Something went wrong. Your administrators have been notified.",
+    )
 
 
 def bad_request(request, exception=None):

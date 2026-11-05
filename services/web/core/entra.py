@@ -191,3 +191,12 @@ def logout(request):
         target_type="local_test" if person and person.get("local_test") else "entra",
     )
     return redirect("signin")
+
+
+@require_POST
+def admin_logout(request):
+    if settings.AUTH_MODE != "easyauth":
+        return logout(request)
+    request.session.flush()
+    telemetry.audit("auth.logout", actor_id=request.audit_actor_id, target_type="entra")
+    return redirect(sessions.EASY_AUTH_LOGOUT)

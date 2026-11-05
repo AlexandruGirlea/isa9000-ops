@@ -220,14 +220,14 @@ def test_render_quotes_original_names_and_runtime_logo(monkeypatch, task, local_
     assert "/libraries/sales/index.html" in html
 
 
-def test_stop_saves_transcripts(monkeypatch, task, local_worker):
+def test_cancel_keeps_no_recordings_and_reports_no_manifest(monkeypatch, task, local_worker):
     monkeypatch.setenv("ISA9000_STUB_EXIT", "0")
     recorder = Recorder(cancel_stage="record")
     assert runner.run_task(task, recorder) == 0
     assert recorder.result["state"] == "stopped"
     assert recorder.result["html"] is None
-    assert recorder.result["manifest"]
-    assert local_worker[1][-1]["podcast.json"]
+    assert recorder.result["manifest"] is None
+    assert not any(name.endswith(".mp3") for upload in local_worker[1] for name in upload)
 
 
 def test_heartbeat_stops_silent_process(monkeypatch, task, local_worker):

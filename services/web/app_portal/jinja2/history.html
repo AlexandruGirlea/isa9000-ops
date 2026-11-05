@@ -17,6 +17,7 @@
 [data-theme="dark"] .history-table .history-status--needs_review { color: #f6d189; background: #49371b; }
 [data-theme="dark"] .history-table .history-status--failed { color: #ffb4b4; background: #492626; }
 .history-table .mobile-meta { display: none; }
+.history-table .history-canceled-by { display: block; margin-top: 4px; font-size: .75rem; color: var(--text-muted-custom); }
 @media (max-width: 575px) {
   .history-table { font-size: .9rem; }
   .history-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -40,7 +41,7 @@
   {% for course in courses %}
   {% set run = course.history_runs|first %}
   {% set status = run.status if run and run.status != 'ready' else course.status %}
-  {% set status_label = {'queued': 'Queued', 'running': 'In progress', 'ready': 'Ready', 'needs_review': 'Needs review', 'failed': 'Failed', 'stopped': 'Stopped', 'draft': 'Draft'}.get(status, 'Draft') %}
+  {% set status_label = {'queued': 'Queued', 'running': 'In progress', 'ready': 'Ready', 'needs_review': 'Needs review', 'failed': 'Failed', 'stopped': 'User canceled', 'draft': 'Draft'}.get(status, 'Draft') %}
   {% if status == 'needs_review' %}
     {% set action, destination = 'Review transcripts', '/courses/' ~ course.id ~ '/manage/' %}
   {% elif run %}
@@ -53,7 +54,7 @@
   <tr>
     <td><a href="/courses/{{ course.id }}/">{{ course.title or 'Podcast in progress' }}</a><span class="mobile-meta">{{ course.group }}<br>{{ course.created.strftime('%d %b %Y, %H:%M') }} UTC</span></td>
     <td class="optional-column">{{ course.group }}</td><td class="optional-column">{{ course.created.strftime('%d %b %Y, %H:%M') }}</td>
-    <td><span class="history-status history-status--{{ status }}">{{ status_label }}</span></td>
+    <td><span class="history-status history-status--{{ status }}">{{ status_label }}</span>{% if status == 'stopped' and run.canceled_by %}<span class="history-canceled-by">by {{ run.canceled_by_name }}</span>{% endif %}</td>
     <td><a class="history-action" href="{{ destination }}" aria-label="{{ action }}: {{ course.title or 'Untitled podcast' }}">{{ action }} <i class="bi bi-arrow-right" aria-hidden="true"></i></a></td>
   </tr>{% else %}<tr><td colspan="5">You haven't created any podcasts yet.</td></tr>{% endfor %}
   </tbody></table>

@@ -2,19 +2,25 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
+from unittest import skipUnless
 from unittest.mock import patch
 
 import jwt
 from app_portal.library_admin import LibraryGrantForm
 from app_portal.models import Course, EntraGroup, LibraryGrant, Profile, Run
 from app_portal.permissions import groups_for
+from core.audit import record
 from core.dev import ENGINEERING, SALES
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.contrib.admin.models import LogEntry
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import DatabaseError, connection, transaction
+from django.test import Client, override_settings
 from django.utils import timezone
 
 from .helpers import (
+    ADMIN,
     ADMIN_OID,
     CLIENT,
     OTHER,
@@ -94,6 +100,27 @@ class PortalListingTests(LibraryCase):
         self.assertContains(page, "Own")
         self.assertNotContains(page, "Sales course")
 
+    def test_editor_icons_load_before_the_editor_so_the_csp_stays_strict(self):
+        page = self.client.get(f"/libraries/{SALES}/new/", **self.headers).content.decode()
+        icons = page.index('src="/static/vendor/vditor/dist/js/icons/ant.js" id="vditorIconScript"')
+        self.assertLess(icons, page.index('src="/static/vendor/vditor/dist/index.min.js"'))
+
+    def test_title_is_optional_when_creating_a_podcast(self):
+        upload = SimpleUploadedFile("handbook.md", b"Handbook")
+        with (
+            patch("app_portal.runs.dispatch"),
+            patch("app_portal.views.storage.save_upload"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/libraries/{SALES}/new/",
+                {"request": "Teach onboarding", "uploads": upload}, **self.headers,
+            )
+        self.assertEqual(response.status_code, 302)
+        course = Run.objects.exclude(pk=self.run.pk).get().course
+        self.assertEqual(course.title, "")
+        self.assertContains(self.client.get("/runs/", **self.headers), "Podcast in progress")
+
     def test_unresolved_notice_is_not_shown_to_administrators(self):
         Profile.objects.filter(pk=self.profile.pk).update(local_admin=True)
         self.assertNotContains(
@@ -122,6 +149,101 @@ class PortalListingTests(LibraryCase):
         self.assertEqual(list(groups_for(user)), [])
 
 
+class RunOutcomeTests(LibraryCase):
+    def failed_run(self):
+        self.run.status, self.run.error = "failed", "Traceback: secret-host.internal key=abc"
+        self.run.log = ["Connecting to secret-host.internal"]
+        self.run.save()
+        return f"/runs/{self.run.id}/"
+
+    def test_creators_get_a_friendly_failure_and_no_raw_error_or_log(self):
+        path = self.failed_run()
+        page = self.client.get(path, **self.headers)
+        self.assertContains(page, "Something went wrong")
+        self.assertContains(page, self.run.correlation_id)
+        self.assertNotContains(page, "secret-host")
+        data = self.client.get(path, HTTP_ACCEPT="application/json", **self.headers).json()
+        self.assertNotIn("secret-host", str(data))
+        self.assertEqual(data["log"], [])
+
+    def test_administrators_get_the_details_in_the_admin(self):
+        path = self.failed_run()
+        page = self.client.get(path, **administrator())
+        self.assertNotContains(page, "Traceback")
+        self.assertContains(page, f"/admin/app_portal/run/{self.run.id}/change/")
+        detail = self.client.get(f"/admin/app_portal/run/{self.run.id}/change/", **administrator())
+        self.assertContains(detail, "secret-host.internal key=abc")
+
+    def test_cancel_button_warns_and_history_names_who_canceled(self):
+        self.run.status = "queued"
+        self.run.save()
+        self.user.first_name = "Ana Creator"
+        self.user.save()
+        path = f"/runs/{self.run.id}/"
+        page = self.client.get(path, **self.headers)
+        self.assertContains(page, "Cancel processing</button>")
+        self.assertContains(page, 'data-confirm="Cancel processing? This stops the run and deletes')
+        self.assertNotContains(page, ">Stop<")
+        response = self.client.post(path, {"action": "stop"}, **self.headers)
+        self.assertEqual(response.status_code, 302)
+        self.run.refresh_from_db()
+        self.assertEqual((self.run.status, self.run.canceled_by), ("stopped", self.user))
+        self.assertTrue(LogEntry.objects.filter(
+            object_id=str(self.run.pk), change_message__contains="run.canceled",
+        ).exists())
+        self.assertContains(self.client.get(path, **self.headers), "by A Person")
+        history = self.client.get("/runs/", **self.headers)
+        self.assertContains(history, "User canceled")
+        self.assertContains(history, '<span class="history-canceled-by">by A Person</span>')
+
+
+class AuditTrailTests(LibraryCase):
+    def test_admin_shows_who_created_and_last_edited_by_name_and_cannot_change_activity(self):
+        self.client.get("/libraries/", **self.headers)
+        self.user.refresh_from_db()
+        record(self.user, "course.updated", self.course, changed_fields=["title"])
+        page = self.client.get(
+            f"/admin/app_portal/course/{self.course.pk}/change/", **administrator(),
+        )
+        self.assertContains(page, "Last edited by")
+        self.assertContains(page, "A Person, ")
+        self.assertNotContains(page, f"<div class=\"readonly\">{self.user.username}</div>")
+        entry = LogEntry.objects.first()
+        for path, method in (
+            (f"/admin/admin/logentry/{entry.pk}/change/", "post"),
+            (f"/admin/admin/logentry/{entry.pk}/delete/", "post"),
+            ("/admin/admin/logentry/add/", "get"),
+        ):
+            response = getattr(self.client, method)(path, {"post": "yes"}, **administrator())
+            self.assertEqual(response.status_code, 403, path)
+        self.assertTrue(LogEntry.objects.filter(pk=entry.pk).exists())
+
+    @skipUnless(connection.vendor == "postgresql", "The database trigger exists on PostgreSQL.")
+    def test_database_refuses_changes_to_the_audit_log(self):
+        record(self.user, "course.updated", self.course, changed_fields=["title"])
+        entry = LogEntry.objects.first()
+        for change in (
+            lambda: LogEntry.objects.filter(pk=entry.pk).update(change_message="forged"),
+            lambda: LogEntry.objects.filter(pk=entry.pk).delete(),
+        ):
+            with self.assertRaisesMessage(DatabaseError, "cannot be changed"), transaction.atomic():
+                change()
+
+
+class SignOutTests(LibraryCase):
+    def test_every_sign_out_ends_on_the_landing_page(self):
+        target = "/.auth/logout?post_logout_redirect_uri=/"
+        self.assertContains(self.client.get("/libraries/", **self.headers), f'href="{target}"')
+        self.assertEqual(self.client.post("/admin/logout/", **administrator()).url, target)
+        self.assertEqual(self.client.get("/admin/logout/", **administrator()).status_code, 405)
+        self.assertEqual(self.client.post("/admin/logout/", **self.headers).status_code, 404)
+        with override_settings(AUTH_MODE="dev", DEBUG=True):
+            client = Client()
+            client.post("/.auth/login/aad")
+            self.assertEqual(client.post("/admin/logout/").url, "/")
+            self.assertEqual(client.get("/libraries/").url, "/")
+
+
 class AdminCatalogueTests(LibraryCase):
     def setUp(self):
         super().setUp()
@@ -147,30 +269,52 @@ class AdminCatalogueTests(LibraryCase):
         return set(response.context_data["cl"].queryset.values_list("pk", flat=True))
 
     def test_filters_return_exactly_the_right_libraries(self):
+        self.client.get("/libraries/", **administrator())
+        admin_group = uuid.UUID(ADMIN)
         everything = set(EntraGroup.objects.values_list("pk", flat=True))
+        hidden = everything - {self.sales.pk, self.engineering.pk, self.empty.pk}
         no_content = {
             self.discovered_idle.pk, self.unnamed_idle.pk, self.unnamed_reviewed.pk,
-            self.draft_share.pk, self.empty.pk, self.engineering.pk,
+            self.draft_share.pk, self.empty.pk, self.engineering.pk, admin_group,
         }
         for params, expected in (
-            ({}, {self.sales.pk, self.engineering.pk, self.empty.pk}),
-            ({"status": "all"}, everything),
+            ({}, everything),
+            ({"status": "enabled"}, {self.sales.pk, self.engineering.pk, self.empty.pk}),
+            ({"status": "discovered"}, hidden),
             ({"status": "archived"}, set()),
-            ({"status": "review"}, {self.unnamed_idle.pk}),
-            ({"status": "all", "named": "missing"}, {
+            ({"status": "review"}, {self.unnamed_idle.pk, admin_group}),
+            ({"named": "missing"}, {
                 self.unnamed_idle.pk, self.unnamed_reviewed.pk, self.unnamed_shared.pk,
+                admin_group,
             }),
-            ({"status": "all", "reviewed__exact": 1}, {self.unnamed_reviewed.pk}),
-            ({"status": "all", "show_when_empty__exact": 1}, {self.mixed_owner.pk}),
-            ({"status": "all", "content": "none"}, no_content),
-            ({"status": "all", "content": "owned"}, {
+            ({"reviewed__exact": 1}, {self.unnamed_reviewed.pk}),
+            ({"show_when_empty__exact": 1}, {self.mixed_owner.pk}),
+            ({"content": "none"}, no_content),
+            ({"content": "owned"}, {
                 self.sales.pk, self.draft_owner.pk, self.mixed_owner.pk,
             }),
-            ({"status": "all", "content": "shared"}, {self.unnamed_shared.pk}),
-            ({"status": "all", "content": "drafts"}, {self.draft_owner.pk}),
+            ({"content": "shared"}, {self.unnamed_shared.pk}),
+            ({"content": "drafts"}, {self.draft_owner.pk}),
         ):
             with self.subTest(params=params):
                 self.assertEqual(self.rows(**params), expected)
+
+    def test_admin_renames_and_enables_a_group_on_its_page(self):
+        response = self.client.post(
+            f"/admin/app_portal/entragroup/{self.unnamed_idle.pk}/change/",
+            {"name": "Finance", "status": "enabled", "show_when_empty": "on", "_save": "Save"},
+            **administrator(),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.unnamed_idle.refresh_from_db()
+        self.assertEqual(self.unnamed_idle.name, "Finance")
+        self.assertEqual(self.unnamed_idle.status, "enabled")
+        self.assertTrue(self.unnamed_idle.show_when_empty)
+        self.assertTrue(LogEntry.objects.filter(
+            object_id=str(self.unnamed_idle.pk), change_message__contains="admin.change",
+        ).exists())
+        page = self.client.get("/admin/app_portal/entragroup/", **administrator())
+        self.assertNotContains(page, 'name="form-0-name"')
 
     def test_invalid_filter_values_do_not_fail(self):
         for path, params in (

@@ -142,8 +142,10 @@ class DirectoryClaimTests(LibraryCase):
                 self.assertEqual(response.status_code, 200 if in_sales else 404)
                 self.profile.refresh_from_db()
                 self.assertEqual(self.profile.membership, "complete")
-        self.assertEqual(EntraGroup.objects.count(), 3)
-        self.assertEqual(list(self.profile.groups.all()), [self.sales])
+        self.assertEqual(EntraGroup.objects.count(), 202)
+        self.assertEqual(self.profile.groups.count(), 200)
+        self.assertEqual(EntraGroup.objects.filter(status="discovered").count(), 199)
+        self.assertTrue(self.profile.groups.filter(pk=self.sales.pk).exists())
 
     def test_largest_group_list_fits_the_web_server_header_limit(self):
         config = Path(__file__).resolve().parents[2] / "web" / "gunicorn.conf.py"
@@ -218,6 +220,16 @@ class MigrationTests(LibraryCase):
         before = EntraGroup.objects.count()
         migration = importlib.import_module("app_portal.migrations.0002_library_access")
         migration.enable_libraries_with_podcasts(apps, None)
+        name_migration = importlib.import_module(
+            "app_portal.migrations.0003_group_id_as_default_name",
+        )
+        name_migration.name_groups_after_their_id(apps, None)
+        idle_unnamed.refresh_from_db()
+        draft_owner.refresh_from_db()
+        idle_named.refresh_from_db()
+        self.assertEqual(idle_unnamed.name, str(idle_unnamed.pk))
+        self.assertEqual(draft_owner.name, str(draft_owner.pk))
+        self.assertEqual(idle_named.name, "Idle")
         status = dict(EntraGroup.objects.values_list("pk", "status"))
         self.assertEqual(EntraGroup.objects.count(), before)
         for group in (self.sales, receiving, draft_owner):

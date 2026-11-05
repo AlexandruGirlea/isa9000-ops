@@ -139,6 +139,19 @@ class CallbackTests(PortalCase):
         self.course.refresh_from_db()
         self.assertEqual(self.course.status, "ready")
 
+    def test_canceled_create_deletes_only_a_draft_that_never_saved_anything(self):
+        for manifest, status, deleted in (
+            ({}, "draft", True), (self.manifest, "draft", False), (self.manifest, "ready", False),
+        ):
+            with self.subTest(status=status, manifest=bool(manifest)):
+                self.course.manifest, self.course.status = manifest, status
+                self.course.save()
+                run = Run.objects.create(course=self.course, requested_by=self.user, task="create")
+                self.callback("accept", run=run)
+                with patch("app_portal.callbacks.storage.delete_prefix") as delete:
+                    self.callback("result", {"state": "stopped"}, run=run)
+                self.assertEqual(delete.called, deleted)
+
     def test_failed_and_stopped_preserve_course_status_and_html_but_save_manifest(self):
         for status in ("draft", "needs_review", "ready"):
             for state in ("failed", "stopped"):
@@ -160,8 +173,8 @@ class CallbackTests(PortalCase):
                     self.course.refresh_from_db()
                     self.assertEqual(self.course.status, status)
                     self.assertEqual(self.course.html, "<!doctype html>Course")
-                    self.assertEqual(self.course.manifest, result["manifest"])
                     if state == "failed":
+                        self.assertEqual(self.course.manifest, result["manifest"])
                         self.assertEqual(
                             logger.return_value.error.call_args.kwargs["extra"]["state"], "failed"
                         )

@@ -7,7 +7,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.models import ADDITION
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
@@ -33,6 +33,10 @@ class AuditedAdmin(admin.ModelAdmin):
         )
 
 
+ID_AS_NAME = r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+UNNAMED = Q(name="") | Q(name__regex=ID_AS_NAME)
+
+
 def content_checks():
     owned = Course.objects.filter(group=OuterRef("pk"))
     shared = Course.objects.filter(shared_groups=OuterRef("pk"), status="ready")
@@ -43,38 +47,19 @@ class LibraryViewFilter(admin.SimpleListFilter):
     title = "status"
     parameter_name = "status"
 
-    def __init__(self, request, params, model, model_admin):
-        self.searching = bool(request.GET.get("q"))
-        super().__init__(request, params, model, model_admin)
-
     def lookups(self, request, model_admin):
         return (
             ("enabled", "Enabled"),
             ("discovered", "Discovered"),
             ("archived", "Archived"),
             ("review", "Unnamed, unreviewed, no content"),
-            ("all", "All"),
         )
 
-    def current(self):
-        return self.value() or ("all" if self.searching else "enabled")
-
-    def choices(self, changelist):
-        for value, label in self.lookup_choices:
-            yield {
-                "selected": self.current() == value,
-                "query_string": changelist.get_query_string({self.parameter_name: value}),
-                "display": label,
-            }
-
     def queryset(self, request, queryset):
-        view = self.current()
-        if view == "all":
-            return queryset
-        if view == "review":
+        if self.value() == "review":
             owned, _, shared = content_checks()
-            return queryset.filter(~owned, ~shared, name="", reviewed=False)
-        return queryset.filter(status=view)
+            return queryset.filter(UNNAMED, ~owned, ~shared, reviewed=False)
+        return queryset.filter(status=self.value()) if self.value() else queryset
 
 
 class LibraryNameFilter(admin.SimpleListFilter):
@@ -86,8 +71,8 @@ class LibraryNameFilter(admin.SimpleListFilter):
 
     def queryset(self, request, queryset):
         if self.value() == "custom":
-            return queryset.exclude(name="")
-        return queryset.filter(name="") if self.value() == "missing" else queryset
+            return queryset.exclude(UNNAMED)
+        return queryset.filter(UNNAMED) if self.value() == "missing" else queryset
 
 
 class LibraryContentFilter(admin.SimpleListFilter):
@@ -138,6 +123,7 @@ class EntraGroupAdmin(AuditedAdmin):
         "__str__", "status", "show_when_empty", "reviewed", "owned_total", "shared_total",
         "user_total", "grant_total", "object_id",
     )
+    ordering = ("-status", "name")
     list_filter = (
         LibraryViewFilter, LibraryNameFilter, "reviewed", LibraryContentFilter, "show_when_empty",
     )
@@ -163,6 +149,16 @@ class EntraGroupAdmin(AuditedAdmin):
                 LibraryGrant.objects.active().filter(library=OuterRef("pk")), "library",
             ),
         )
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if "object_id" in form.base_fields:
+            form.base_fields["object_id"].label = "Entra group ID"
+            form.base_fields["object_id"].help_text = (
+                "The group's Object ID in Entra. Groups appear here by themselves once a member "
+                "signs in, so you rarely need this form."
+            )
+        return form
 
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)

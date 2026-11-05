@@ -104,7 +104,7 @@ class GenerationForm(forms.Form):
 
 class CreateForm(GenerationForm):
     title = forms.CharField(
-        max_length=80, label="Podcast title",
+        max_length=80, label="Podcast title", required=False,
         widget=forms.TextInput(attrs={
             "placeholder": "For example: Getting started with our team",
             "aria-describedby": "title-help",

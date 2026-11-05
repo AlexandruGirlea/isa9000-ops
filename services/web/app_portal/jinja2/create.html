@@ -13,9 +13,9 @@
       <h2><span class="step">1</span>Podcast details</h2>
       <p class="hint">Give your podcast a name your team will recognize.</p>
       <div class="podcast-fields">
-        <div><label for="id_title">Podcast title <span class="hint">Required</span></label>
+        <div><label for="id_title">Podcast title <span class="hint">Optional</span></label>
           {{ form.title }}{{ form.title.errors }}
-          <p class="hint" id="title-help">Keep it easy to scan. Up to {{ form.title.field.max_length }} characters.</p>
+          <p class="hint" id="title-help">Leave empty to let isa9000 choose one. The title on the generated cover comes from isa9000 and may differ from yours. Up to {{ form.title.field.max_length }} characters.</p>
         </div>
         {% set description_field = form.description %}
         {% set description_preview_url = '/libraries/' ~ group.pk ~ '/description-preview/' %}
@@ -77,7 +77,7 @@
       {{ form.text_only.errors }}
       <p class="hint" id="review-hint">Generate audio now, or check the transcripts first and record when you are ready.</p>
       <button id="create" class="primary" type="submit">Create podcast</button>
-      <p class="hint" id="create-hint" style="margin:12px 0 0">Add a title, learning brief and sources to get started.</p>
+      <p class="hint" id="create-hint" style="margin:12px 0 0">Add a learning brief and sources to get started.</p>
     </section>
     <section class="card">
       <h2>What happens next</h2>
@@ -106,8 +106,8 @@
     const error = document.getElementById('upload-error');
     error.hidden = !invalidFiles;
     error.textContent = 'Choose up to {{ max_files }} PDF, TXT, MD or HTML files, {{ max_upload_mb }} MB each.';
-    create.disabled = !document.getElementById('id_title').value.trim() || !document.getElementById('id_request').value.trim() || !(sources.size || files.files.length) || [...sources.values()].some(source => !source.ok) || invalidFiles || !!input.value.trim();
-    document.getElementById('create-hint').textContent = create.disabled ? 'Add a title, learning brief and valid sources to continue.' : 'Ready to create. You can follow progress on the next screen.';
+    create.disabled = !document.getElementById('id_request').value.trim() || !(sources.size || files.files.length) || [...sources.values()].some(source => !source.ok) || invalidFiles || !!input.value.trim();
+    document.getElementById('create-hint').textContent = create.disabled ? 'Add a learning brief and valid sources to continue.' : 'Ready to create. You can follow progress on the next screen.';
     create.textContent = review.checked ? 'Create transcripts' : 'Create podcast';
     document.getElementById('review-hint').textContent = review.checked ? 'The transcripts stay private to creators until you choose to record.' : 'Audio is shared with this library once generation and checks finish.';
     document.getElementById('final-step').textContent = review.checked ? 'Review transcripts, then choose when to record' : 'Record and share with your library';
@@ -145,7 +145,6 @@
   input.addEventListener('paste', event => { const value = event.clipboardData.getData('text'); if (/\r?\n/.test(value)) { event.preventDefault(); value.split(/\r?\n/).forEach(addSource); } });
   input.addEventListener('input', refresh);
   document.getElementById('id_request').addEventListener('input', refresh);
-  document.getElementById('id_title').addEventListener('input', refresh);
   files.addEventListener('change', refresh);
   review.addEventListener('change', refresh);
   const initial = links.value;

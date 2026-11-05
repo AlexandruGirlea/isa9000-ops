@@ -31,7 +31,7 @@ class ActionTests(PortalCase):
             patch("app_portal.views.storage.save_upload") as upload,
         ):
             for values in (
-                {"title": ""}, {"title": " "}, {"title": "x" * 81},
+                {"title": "x" * 81},
                 {"title": "Onboarding", "description": "x" * 10001},
             ):
                 with self.subTest(invalid_fields=list(values)):

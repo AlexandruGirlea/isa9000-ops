@@ -2,14 +2,24 @@
 
 ## Unreleased
 
-- **Upgrade note:** sign-ins no longer create libraries. On upgrade, groups that own or
-  receive a podcast become enabled libraries and all other groups are hidden as
-  discovered. Nothing is deleted. Register further groups under **Admin → Libraries**.
+- **Upgrade note:** groups no longer become libraries by themselves. On upgrade, groups that
+  own or receive a podcast become enabled libraries and all other groups are hidden as
+  discovered. Nothing is deleted. Enable further groups under **Admin → Libraries**.
+- Sign-ins list each group under **Admin → Libraries**, hidden and named after its Entra ID.
+  Administrators open a group to rename and enable it.
 - Administrators control the library lifecycle: discovered, enabled and archived.
   Archiving revokes portal access and keeps all data. Empty libraries stay hidden unless
   **Show when empty** is on. **New library** is now **Add podcast**.
 - People whose token has no usable group list (Entra group overage, missing or malformed
   claims) can sign in instead of getting a 403 error. Stale memberships never grant access.
+- The podcast title is optional when creating a podcast; without one, isa9000 chooses it.
+- Short podcast descriptions show their formatting on the course page instead of a plain excerpt.
+- **Cancel processing** replaces **Stop**: it asks first, deletes what the run created, and
+  History shows **User canceled** and who did it.
+- Failed runs show creators a short message and a reference. Raw errors and the activity log
+  are visible only to administrators.
+- The admin shows people by name and who last edited each podcast. **Activity** cannot be
+  changed by administrators, and a PostgreSQL trigger refuses updates and deletes.
 - Audited local library access with reason, expiry and revocation, independent of Entra
   sync. The user page shows each person's access sources.
 - A local **Application administrator** flag and an `app_admin` operator recovery command.

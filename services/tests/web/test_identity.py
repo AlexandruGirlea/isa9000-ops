@@ -23,7 +23,7 @@ from .helpers import ADMIN, OID, PortalCase, principal
 
 
 class IdentityTests(PortalCase):
-    def test_first_visit_registers_viewer_and_ignores_unregistered_groups(self):
+    def test_first_visit_registers_viewer_and_lists_unknown_groups_as_hidden(self):
         oid = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
         response = self.client.get(
             "/libraries/", HTTP_X_MS_TOKEN_AAD_ID_TOKEN=principal(oid, [SALES, ADMIN])
@@ -32,8 +32,9 @@ class IdentityTests(PortalCase):
         user = get_user_model().objects.get(username=oid)
         self.assertEqual(user.profile.role, "viewer")
         self.assertTrue(user.is_superuser)
-        self.assertEqual(list(user.profile.groups.all()), [self.sales])
-        self.assertFalse(EntraGroup.objects.filter(pk=ADMIN).exists())
+        self.assertEqual(user.profile.groups.count(), 2)
+        unknown = EntraGroup.objects.get(pk=ADMIN)
+        self.assertEqual((unknown.name, unknown.status), (ADMIN, "discovered"))
         with (
             override_settings(
                 AUTH_MODE="entra", LOCAL_TEST_USERS=True, ALLOWED_HOSTS=["localhost"],

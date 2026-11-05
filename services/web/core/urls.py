@@ -38,6 +38,7 @@ urlpatterns = [
     path("internal/runs/<uuid:run_id>/<str:action>", callbacks.callback),
     path("static/isa9000/logo.svg", core_views.logo),
     path("static/isa9000/manifest.webmanifest", core_views.manifest),
+    path("admin/logout/", entra.admin_logout),
     path("admin/password_change/", core_views.not_found),
     path("admin/password_change/done/", core_views.not_found),
     path("admin/", admin.site.urls),

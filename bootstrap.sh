@@ -20,7 +20,7 @@ repository=$5
 # New repositories issue immutable subjects with owner and repository IDs; older ones do not.
 subject_prefix=${GITHUB_OIDC_SUBJECT_PREFIX:-$(gh api \
     "repos/$repository/actions/oidc/customization/sub" \
-    --jq 'if .use_default then .sub_claim_prefix // "" else "" end')}
+    --jq 'if .use_default then .sub_claim_prefix // "" else "" end' || true)}
 if [[ "$subject_prefix" != repo:* ]]; then
     printf '%s\n' \
         'Could not read a default GitHub OIDC subject for this repository.' \

@@ -99,8 +99,8 @@ credit. Sign-in is real. An existing setup retains its configured worker mode.
 
 ## 4. Create your first podcast
 
-1. In **Admin → Libraries**, choose **Add library**. Paste the pilot group's Entra
-   object ID, give it a friendly name and save it as **Enabled**.
+1. Ask a pilot group member to sign in once. In **Admin → Libraries**, find the group by
+   its Entra ID, give it a friendly name and set it to **Enabled**.
 2. Ask the pilot creator to sign in once. In **Admin → Users**, set that person
    to **Creator**. Administrators can already create podcasts.
 3. Choose **Libraries → Add podcast**, select the pilot library, and create a podcast.
@@ -154,7 +154,7 @@ Azure validation. Those are explicit prerequisites, not steps hidden behind
 |---|---|
 | Microsoft sign-in returns an error | Exact Web redirect URI, tenant/client IDs, secret value/expiry and group claims |
 | **Admin** is missing | Administrator group object ID and your membership in the token; sign out and back in after Entra changes. With too many groups, use the [recovery command](operator-guide.md#administrator-access-and-recovery) |
-| No libraries appear | Register and enable the group under **Admin → Libraries**, then publish its first podcast. An empty library has no card unless **Show when empty** is on |
+| No libraries appear | Enable the group under **Admin → Libraries**, then publish its first podcast. An empty library has no card unless **Show when empty** is on |
 | A notice asks you to request local library access | The sign-in token has no usable group list, usually because of too many groups. See [group overage](operator-guide.md#group-overage) |
 | No **Add podcast** button | Creator role or administrator membership |
 | Audio is silent | The default worker is a simulation; complete step 5 for real generation |

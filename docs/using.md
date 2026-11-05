@@ -11,9 +11,9 @@ browser. Employees do not need GitHub, Docker, Python or Azure access.
 ## Administrators: set up the audience
 
 1. Sign in with Microsoft using an account in the configured administrator group.
-2. Open **Admin → Libraries → Add library** for each team. Paste the Entra group's
-   object ID, give it a readable name and save it as **Enabled**. Sign-ins never
-   create libraries, so unrelated directory groups stay out of the way.
+2. Open **Admin → Libraries**. Each group appears, named after its Entra ID, once a member
+   signs in. Open your team's groups, give them readable names and set them to **Enabled**.
+   Other groups stay hidden from everyone.
 3. Ask prospective creators to sign in once, then set their role under
    **Admin → Users**.
 4. Leave other employees as viewers. Their Entra group memberships determine
@@ -53,13 +53,16 @@ already downloaded, including bytes buffered by the player.
 
 1. Open a library and choose **New podcast**. For a library without podcasts,
    use **Libraries → Add podcast**.
-2. Give it a title and explain the audience and what they should learn.
+2. Explain the audience and what they should learn. The title is optional; without one,
+   isa9000 chooses it. The title on a generated cover always comes from isa9000 and may
+   differ from yours.
 3. Upload source documents or add public HTTP/HTTPS links. Upload internal
    documents; links requiring company sign-in are not fetched with your account.
 4. Choose the narrator and wording settings. **Review transcripts before recording**
    is selected by default; check source accuracy before approving publication.
 5. Start creation and follow progress. You can close the page and find it again
-   through **History**.
+   through **History**. **Cancel processing** stops the run and deletes what it created so
+   far; it cannot be resumed.
 6. Read the transcripts and review notes. Edit where needed, then select
    **Approve & record audio**.
 7. Once ready, open the podcast, listen and share its company URL with colleagues

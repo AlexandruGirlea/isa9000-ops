@@ -1,3 +1,5 @@
+{# Vditor would otherwise fetch this file and run it as an inline script, which the CSP blocks. #}
+<script src="/static/vendor/vditor/dist/js/icons/ant.js" id="vditorIconScript"></script>
 <script src="/static/vendor/vditor/dist/index.min.js"></script>
 <script nonce="{{ request.csp_nonce }}">
 (() => {

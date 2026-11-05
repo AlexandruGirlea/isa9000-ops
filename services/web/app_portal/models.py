@@ -3,10 +3,13 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
+
+
+def person_name(user):
+    return user.get_full_name() or user.email or user.username
 
 
 class EntraGroup(models.Model):
@@ -41,12 +44,10 @@ class EntraGroup(models.Model):
         ordering = ("name", "object_id")
 
     def __str__(self):
-        return self.name or f"Unnamed group {str(self.object_id)[:8]}"
+        return self.name or str(self.object_id)
 
     def clean(self):
-        self.name = self.name.strip()
-        if self.status == "enabled" and not self.name:
-            raise ValidationError({"name": "Enter a display name before enabling this library."})
+        self.name = self.name.strip() or str(self.object_id)
 
 
 class Profile(models.Model):
@@ -214,7 +215,7 @@ class Run(models.Model):
             ("ready", "Ready"),
             ("needs_review", "Needs review"),
             ("failed", "Failed"),
-            ("stopped", "Stopped"),
+            ("stopped", "User canceled"),
         ],
     )
     steps = models.JSONField(default=list, blank=True)
@@ -223,6 +224,9 @@ class Run(models.Model):
     error = models.TextField(blank=True)
     error_source = models.CharField(max_length=7, blank=True)
     cancel_requested = models.BooleanField(default=False)
+    canceled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     last_seen = models.DateTimeField(default=timezone.now)
     created = models.DateTimeField(auto_now_add=True)
     finished = models.DateTimeField(null=True, blank=True)
@@ -234,3 +238,7 @@ class Run(models.Model):
 
     def __str__(self):
         return f"{self.get_task_display()}: {self.course} — {self.get_status_display()}"
+
+    @property
+    def canceled_by_name(self):
+        return person_name(self.canceled_by) if self.canceled_by else ""

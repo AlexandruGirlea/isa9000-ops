@@ -6,8 +6,9 @@ from core.audit import record
 from core.branding import site
 from django import forms
 from django.contrib import admin
-from django.contrib.admin.models import DELETION, LogEntry
+from django.contrib.admin.models import CHANGE, DELETION, LogEntry
 from django.contrib.auth.models import Group, User
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
@@ -18,7 +19,7 @@ from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from app_portal.library_admin import AuditedAdmin, LibraryFilter
-from app_portal.models import Course, EntraGroup, LibraryGrant, Profile, Run
+from app_portal.models import Course, EntraGroup, LibraryGrant, Profile, Run, person_name
 from app_portal.permissions import access_sources
 from shared import storage
 
@@ -27,6 +28,8 @@ admin.site.unregister(Group)
 admin.site.site_header = "Admin Dashboard"
 admin.site.site_title = lazy(lambda: site()["title"], str)()
 admin.site.site_url = "/libraries/"
+# Users are stored under their Entra object ID; everywhere in the admin, show who they are.
+User.__str__ = person_name
 LogEntry._meta.verbose_name = "activity entry"
 LogEntry._meta.verbose_name_plural = "activity"
 
@@ -202,6 +205,7 @@ class CourseAdmin(AuditedAdmin):
     readonly_fields = (
         "owning_library",
         "created_by",
+        "last_edited",
         "title",
         "description",
         "cover",
@@ -228,6 +232,22 @@ class CourseAdmin(AuditedAdmin):
 
     def has_view_permission(self, request, obj=None):
         return request.user.is_superuser
+
+    @admin.display(description="Last edited by")
+    def last_edited(self, obj):
+        entry = (
+            LogEntry.objects.filter(
+                content_type=ContentType.objects.get_for_model(Course),
+                object_id=str(obj.pk), action_flag=CHANGE,
+            )
+            .exclude(change_message__contains='"actor_id": "worker"')
+            .select_related("user")
+            .order_by("-action_time")
+            .first()
+        )
+        if entry is None:
+            return "-"
+        return f"{person_name(entry.user)}, {entry.action_time:%d %b %Y, %H:%M} UTC"
 
     @admin.display(description="Owning library", ordering="group__name")
     def owning_library(self, obj):
@@ -310,8 +330,8 @@ class RequestAdmin(admin.ModelAdmin):
             None,
             {
                 "fields": (
-                    "course", "task", "requested_by", "status", "created", "finished",
-                    "duration", "error",
+                    "course", "task", "requested_by", "status", "canceled_by", "created",
+                    "finished", "duration", "error",
                 ),
             },
         ),

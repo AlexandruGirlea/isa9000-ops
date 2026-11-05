@@ -85,7 +85,6 @@ class ScaleTests(LibraryCase):
                 self.assertLessEqual(total, limit)
                 self.assertLess(len(response.content), 400_000)
         _, response = self.count("/admin/app_portal/entragroup/", headers)
-        self.assertNotContains(response, "Library 000")
         self.assertContains(response, "Library 001")
         _, response = self.count(f"/admin/app_portal/course/{self.course.pk}/change/", headers)
         self.assertNotContains(response, "Library 299")
@@ -101,12 +100,12 @@ class ScaleTests(LibraryCase):
         for params, present, absent in (
             ({"status": "discovered"}, "Library 000", "Library 001"),
             ({"status": "review"}, str(unnamed.pk), "Library 000"),
-            ({"status": "all", "named": "missing"}, str(unnamed.pk), "Library 000"),
-            ({"status": "all", "named": "custom"}, "Library 000", str(unnamed.pk)),
-            ({"status": "all", "content": "drafts"}, "Draft only", "Library 000"),
-            ({"status": "all", "content": "shared"}, "Shared only", "Library 000"),
-            ({"status": "all", "content": "owned"}, "Library 000", "Shared only"),
-            ({"status": "all", "content": "none"}, str(unnamed.pk), "Library 000"),
+            ({"named": "missing"}, str(unnamed.pk), "Library 000"),
+            ({"named": "custom", "q": "Library 00"}, "Library 000", str(unnamed.pk)),
+            ({"content": "drafts"}, "Draft only", "Library 000"),
+            ({"content": "shared"}, "Shared only", "Library 000"),
+            ({"content": "owned", "q": "Library 00"}, "Library 000", "Shared only"),
+            ({"content": "none"}, str(unnamed.pk), "Library 000"),
             ({"q": str(unnamed.pk)}, str(unnamed.pk), "Library 000"),
             ({"q": "Library 000"}, "Library 000", "Library 001"),
         ):
