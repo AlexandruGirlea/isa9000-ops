@@ -278,7 +278,7 @@ class AdminCatalogueTests(LibraryCase):
         make = EntraGroup.objects.create
         self.discovered_idle = make(object_id=uuid.uuid4(), name="Idle")
         self.unnamed_idle = make(object_id=uuid.uuid4())
-        self.unnamed_reviewed = make(object_id=uuid.uuid4(), reviewed=True)
+        self.unnamed_second = make(object_id=uuid.uuid4())
         self.unnamed_shared = make(object_id=uuid.uuid4())
         self.draft_owner = make(object_id=uuid.uuid4(), name="Drafts")
         self.mixed_owner = make(object_id=uuid.uuid4(), name="Mixed", show_when_empty=True)
@@ -302,7 +302,7 @@ class AdminCatalogueTests(LibraryCase):
         everything = set(EntraGroup.objects.values_list("pk", flat=True))
         hidden = everything - {self.sales.pk, self.engineering.pk, self.empty.pk}
         no_content = {
-            self.discovered_idle.pk, self.unnamed_idle.pk, self.unnamed_reviewed.pk,
+            self.discovered_idle.pk, self.unnamed_idle.pk, self.unnamed_second.pk,
             self.draft_share.pk, self.empty.pk, self.engineering.pk, admin_group,
         }
         for params, expected in (
@@ -310,12 +310,11 @@ class AdminCatalogueTests(LibraryCase):
             ({"status": "enabled"}, {self.sales.pk, self.engineering.pk, self.empty.pk}),
             ({"status": "discovered"}, hidden),
             ({"status": "archived"}, set()),
-            ({"status": "review"}, {self.unnamed_idle.pk, admin_group}),
+            ({"status": "review"}, {self.unnamed_idle.pk, self.unnamed_second.pk, admin_group}),
             ({"named": "missing"}, {
-                self.unnamed_idle.pk, self.unnamed_reviewed.pk, self.unnamed_shared.pk,
+                self.unnamed_idle.pk, self.unnamed_second.pk, self.unnamed_shared.pk,
                 admin_group,
             }),
-            ({"reviewed__exact": 1}, {self.unnamed_reviewed.pk}),
             ({"show_when_empty__exact": 1}, {self.mixed_owner.pk}),
             ({"content": "none"}, no_content),
             ({"content": "owned"}, {
@@ -365,19 +364,6 @@ class AdminCatalogueTests(LibraryCase):
                     self.client.get(path, params, **administrator()).status_code, 200,
                 )
 
-    def test_mark_reviewed_is_audited(self):
-        response = self.client.post(
-            "/admin/app_portal/entragroup/?status=review",
-            {"action": "mark_reviewed", "_selected_action": str(self.unnamed_idle.pk)},
-            **administrator(),
-        )
-        self.assertEqual(response.status_code, 302)
-        self.unnamed_idle.refresh_from_db()
-        self.assertTrue(self.unnamed_idle.reviewed)
-        self.assertTrue(LogEntry.objects.filter(
-            object_id=str(self.unnamed_idle.pk), change_message__contains="reviewed",
-        ).exists())
-
     def test_people_are_found_by_access_membership_and_reference(self):
         grantee = Profile.objects.create(user=self.make_user("Local Holder"))
         stale = Profile.objects.create(user=self.make_user("Stale Member"), membership="overage")
@@ -394,7 +380,19 @@ class AdminCatalogueTests(LibraryCase):
         page = self.client.get(
             f"/admin/app_portal/entragroup/{ENGINEERING}/change/", **administrator(),
         )
-        self.assertContains(page, "1 from Entra, 1 local")
+        self.assertContains(page, ">2 people</a>")
+        LibraryGrant.objects.create(
+            profile=current, library=self.engineering, granted_by=self.user, reason="Both",
+        )
+        page = self.client.get(
+            f"/admin/app_portal/entragroup/{ENGINEERING}/change/", **administrator(),
+        )
+        self.assertContains(page, ">2 people</a>")
+        LibraryGrant.objects.all().delete()
+        page = self.client.get(
+            f"/admin/app_portal/entragroup/{ENGINEERING}/change/", **administrator(),
+        )
+        self.assertContains(page, ">1 person</a>")
 
     def make_user(self, name):
         return get_user_model().objects.create_user(username=str(uuid.uuid4()), first_name=name)

@@ -43,7 +43,6 @@ class EntraGroup(models.Model):
         help_text="List this library for creators and administrators before it has podcasts. "
         "This does not grant membership or creator rights.",
     )
-    reviewed = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         verbose_name = "library"

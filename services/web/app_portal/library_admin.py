@@ -61,13 +61,13 @@ class LibraryViewFilter(admin.SimpleListFilter):
             ("enabled", "Enabled"),
             ("discovered", "Hidden"),
             ("archived", "Archived"),
-            ("review", "Unnamed, unreviewed, no content"),
+            ("review", "Unnamed, no content"),
         )
 
     def queryset(self, request, queryset):
         if self.value() == "review":
             owned, _, shared = content_checks()
-            return queryset.filter(UNNAMED, ~owned, ~shared, reviewed=False)
+            return queryset.filter(UNNAMED, ~owned, ~shared)
         return queryset.filter(status=self.value()) if self.value() else queryset
 
 
@@ -129,33 +129,34 @@ class LibraryFilter(admin.SimpleListFilter):
 @admin.register(EntraGroup)
 class EntraGroupAdmin(AuditedAdmin):
     list_display = (
-        "__str__", "status", "show_when_empty", "reviewed", "owned_total", "shared_total",
-        "user_total", "grant_total", "object_id",
+        "__str__", "status", "show_when_empty", "owned_total", "shared_total", "people_total",
+        "object_id",
     )
     ordering = ("-status", "name")
     list_filter = (
-        LibraryViewFilter, LibraryNameFilter, "reviewed", LibraryContentFilter, "show_when_empty",
+        LibraryViewFilter, LibraryNameFilter, LibraryContentFilter, "show_when_empty",
     )
     list_per_page = 50
     show_full_result_count = False
     search_fields = ("name", "object_id")
-    actions = ("mark_reviewed",)
     detail_links = ("users_link", "grants_link", "owned_link", "shared_link")
 
     def get_queryset(self, request):
+        members = Profile.groups.through.objects.filter(profile__membership="complete")
         return super().get_queryset(request).annotate(
             owned_total=count_of(Course.objects.filter(group=OuterRef("pk")), "group"),
             shared_total=count_of(
                 Course.objects.filter(shared_groups=OuterRef("pk")), "shared_groups",
             ),
-            user_total=count_of(
-                Profile.groups.through.objects.filter(
-                    entragroup=OuterRef("pk"), profile__membership="complete",
+            # Members plus local grants held by non-members, so nobody is counted twice.
+            people_total=count_of(members.filter(entragroup=OuterRef("pk")), "entragroup")
+            + count_of(
+                LibraryGrant.objects.active().filter(library=OuterRef("pk")).exclude(
+                    Exists(members.filter(
+                        entragroup=OuterRef("library"), profile=OuterRef("profile"),
+                    )),
                 ),
-                "entragroup",
-            ),
-            grant_total=count_of(
-                LibraryGrant.objects.active().filter(library=OuterRef("pk")), "library",
+                "library",
             ),
         )
 
@@ -171,10 +172,10 @@ class EntraGroupAdmin(AuditedAdmin):
 
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)
-        return {"status": "enabled", "reviewed": True, **initial}
+        return {"status": "enabled", **initial}
 
     def get_fields(self, request, obj=None):
-        fields = ("object_id", "name", "status", "show_when_empty", "reviewed")
+        fields = ("object_id", "name", "status", "show_when_empty")
         return (*fields, *self.detail_links) if obj else fields
 
     def get_readonly_fields(self, request, obj=None):
@@ -188,21 +189,15 @@ class EntraGroupAdmin(AuditedAdmin):
     def shared_total(self, obj):
         return obj.shared_total
 
-    @admin.display(description="Entra users", ordering="user_total")
-    def user_total(self, obj):
-        return obj.user_total
+    @admin.display(description="People with access", ordering="people_total")
+    def people_total(self, obj):
+        return obj.people_total
 
-    @admin.display(description="Local access", ordering="grant_total")
-    def grant_total(self, obj):
-        return obj.grant_total
-
-    @admin.display(description="Everyone with access")
+    @admin.display(description="People with access")
     def users_link(self, obj):
         url = reverse("admin:app_portal_profile_changelist")
-        return format_html(
-            '<a href="{}?library={}">{} from Entra, {} local</a>',
-            url, obj.pk, obj.user_total, obj.grant_total,
-        )
+        label = "1 person" if obj.people_total == 1 else f"{obj.people_total} people"
+        return format_html('<a href="{}?library={}">{}</a>', url, obj.pk, label)
 
     @admin.display(description="Local access records")
     def grants_link(self, obj):
@@ -218,17 +213,6 @@ class EntraGroupAdmin(AuditedAdmin):
     def shared_link(self, obj):
         url = reverse("admin:app_portal_course_changelist")
         return format_html('<a href="{}?shared_library={}">{}</a>', url, obj.pk, obj.shared_total)
-
-    @admin.action(description="Mark selected as reviewed")
-    @transaction.atomic
-    def mark_reviewed(self, request, queryset):
-        for library in queryset.filter(reviewed=False):
-            library.reviewed = True
-            library.save(update_fields=["reviewed"])
-            record(
-                request.user, "admin.change", library, changed_fields=["reviewed"],
-                group_id=str(library.pk),
-            )
 
     def has_add_permission(self, request):
         return request.user.is_superuser

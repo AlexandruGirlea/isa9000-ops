@@ -5,7 +5,7 @@ from django.db.models.functions import Coalesce
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
-from app_portal.models import Course, EntraGroup, LibraryGrant
+from app_portal.models import Course, EntraGroup, LibraryGrant, Profile
 
 
 def is_creator(user):
@@ -89,6 +89,14 @@ def visible_courses(user, group):
         owned &= Q(status="ready")
     shared = Course.shared_groups.through.objects.filter(entragroup=group).values("course")
     return Course.objects.filter(owned | Q(pk__in=shared, status="ready"), group__status="enabled")
+
+
+def people_with_access(library):
+    members = Profile.groups.through.objects.filter(
+        entragroup=library, profile__membership="complete",
+    ).values("profile")
+    grants = LibraryGrant.objects.active().filter(library=library).values("profile")
+    return Profile.objects.filter(Q(pk__in=members) | Q(pk__in=grants))
 
 
 def access_sources(profile):

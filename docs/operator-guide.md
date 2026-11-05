@@ -152,7 +152,7 @@ including requests made with an existing session.
 When a member signs in, each group in their token appears under **Admin → Libraries / Entra groups**,
 named after its Entra group ID and set to **Hidden**. Open the group, change the name
 and set the status to **Enabled**. Turn on **Show when empty** to list it before its first
-podcast. Filter by status, display name, review state, content and **Show when empty**, or
+podcast. Filter by status, display name, content and **Show when empty**, or
 search by name or ID.
 
 For a group nobody has signed in with yet, use **Add library** with its Entra group ID. With

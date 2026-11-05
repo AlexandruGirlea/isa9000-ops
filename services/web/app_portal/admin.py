@@ -24,12 +24,11 @@ from app_portal.models import (
     ContactRequest,
     Course,
     EntraGroup,
-    LibraryGrant,
     Profile,
     Run,
     person_name,
 )
-from app_portal.permissions import access_sources
+from app_portal.permissions import access_sources, people_with_access
 from shared import storage
 from shared.descriptions import render_description
 
@@ -46,9 +45,7 @@ LogEntry._meta.verbose_name_plural = "activity"
 
 class PersonLibraryFilter(LibraryFilter):
     def filter_library(self, queryset, library):
-        members = Profile.groups.through.objects.filter(entragroup=library).values("profile")
-        grants = LibraryGrant.objects.active().filter(library=library).values("profile")
-        return queryset.filter(Q(pk__in=members, membership="complete") | Q(pk__in=grants))
+        return queryset.filter(pk__in=people_with_access(library).values("pk"))
 
 
 class OwningLibraryFilter(LibraryFilter):

@@ -395,7 +395,7 @@ class PermissionTests(PortalCase):
         request = RequestFactory().get("/admin/")
         request.user = self.user
         for model, obj, fields in (
-            (EntraGroup, self.sales, {"name", "status", "show_when_empty", "reviewed"}),
+            (EntraGroup, self.sales, {"name", "status", "show_when_empty"}),
             (Profile, self.profile, {"role", "local_admin", "is_active"}),
             (Course, self.course, {"shared_groups"}),
         ):
