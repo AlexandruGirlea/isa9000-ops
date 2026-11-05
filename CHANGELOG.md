@@ -5,6 +5,11 @@
 - **Upgrade note:** groups no longer become libraries by themselves. On upgrade, groups that
   own or receive a podcast become enabled libraries and all other groups are
   hidden. Nothing is deleted. Enable further groups under **Admin → Libraries / Entra groups**.
+- **Upgrade note:** everyone in the company's Entra directory can now sign in, including invited
+  guests. People with no library access see no libraries. `authApp: create` no longer requires
+  assignment to the application, and `groupClaims` defaults to `SecurityGroup` so each person's
+  groups appear in the admin. Set `groupClaims: ApplicationGroup` to send only assigned groups.
+  With your own registration, set **Assignment required** to **No** yourself.
 - Sign-ins list each group under **Admin → Libraries / Entra groups**, hidden and named after its Entra ID.
   Administrators open a group to rename and enable it.
 - Administrators control whether a group is a library: hidden or enabled. Hiding one revokes

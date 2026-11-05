@@ -10,7 +10,7 @@ config:
   isa9000:imageTag: "sha256:YOUR-PUBLISHED-IMAGE-DIGEST"
   isa9000:alertEmail: audio-operations@example.com
   isa9000:authApp: create
-  isa9000:groupClaims: ApplicationGroup
+  isa9000:groupClaims: SecurityGroup
   isa9000:workerMaxExecutions: 5
   isa9000:foundry:
     endpoint: https://YOUR-RESOURCE.cognitiveservices.azure.com/

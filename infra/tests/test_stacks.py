@@ -233,18 +233,19 @@ def test_foundry_in_the_application_group_keeps_the_worker_grant():
     assert resources["worker-foundry"]["inputs"]["principalId"] == "worker-identity-principal"
 
 
-def test_immutable_image_and_assignment_required():
+def test_immutable_image_and_every_employee_can_sign_in():
     digest = "sha256:" + "a" * 64
     result = run_stack(
         "prod",
         {
             "isa9000:imageTag": digest,
             "isa9000:allowedIps": ["192.0.2.0/24"],
-            "isa9000:groupClaims": "ApplicationGroup",
+            "isa9000:groupClaims": "",
         },
     )
     resources = result["resources"]
-    assert resources["auth-service-principal"]["inputs"]["appRoleAssignmentRequired"] is True
+    assert resources["auth-service-principal"]["inputs"]["appRoleAssignmentRequired"] is False
+    assert resources["auth-app"]["inputs"]["groupMembershipClaims"] == ["SecurityGroup"]
     assert resources["web"]["inputs"]["configuration"]["ingress"]["ipSecurityRestrictions"] == [
         {"name": "allowed-0", "action": "Allow", "ipAddressRange": "192.0.2.0/24"}
     ]

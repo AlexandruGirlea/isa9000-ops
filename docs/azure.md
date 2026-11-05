@@ -108,7 +108,7 @@ config:
   isa9000:imageTag: "sha256:YOUR-PUBLISHED-IMAGE-DIGEST"
   isa9000:alertEmail: audio-operations@example.com
   isa9000:authApp: create
-  isa9000:groupClaims: ApplicationGroup
+  isa9000:groupClaims: SecurityGroup
   isa9000:foundry:
     endpoint: https://YOUR-RESOURCE.cognitiveservices.azure.com/
     resourceId: /subscriptions/YOUR-SUBSCRIPTION-ID/resourceGroups/YOUR-AI-GROUP/providers/Microsoft.CognitiveServices/accounts/YOUR-RESOURCE
@@ -176,6 +176,8 @@ The shared bootstrap resources are retained outside the application stacks.
 With `authApp: create`, an Entra administrator must grant the three deployment
 identities Microsoft Graph `Application.ReadWrite.OwnedBy`. Pulumi then creates
 a tenant-only sign-in registration with the Azure callback automatically.
+Everyone in the directory, including invited guests, can sign in; libraries still
+depend on their groups.
 An existing IT-managed registration is an alternative; see
 [registration details](operator-guide.md#11-bootstrap-and-secrets).
 

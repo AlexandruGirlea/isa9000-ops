@@ -28,7 +28,7 @@ if s.auth_app == "create":
     azuread.ServicePrincipal(
         "auth-service-principal",
         client_id=registration.client_id,
-        app_role_assignment_required=True,
+        app_role_assignment_required=False,
         owners=[s.client.object_id],
         tags=[f"{key}={value}" for key, value in s.tags.items()],
     )

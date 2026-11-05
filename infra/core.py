@@ -49,7 +49,7 @@ image = "ghcr.io/alexandrugirlea/isa9000-ops"
 image = f"{image}@{image_tag}" if image_tag.startswith("sha256:") else f"{image}:{image_tag}"
 admin_group = config.require_secret("adminGroupId")
 alert_email = config.require("alertEmail")
-group_claims = config.get("groupClaims") or "ApplicationGroup"
+group_claims = config.get("groupClaims") or "SecurityGroup"
 if group_claims not in {"SecurityGroup", "ApplicationGroup"}:
     raise ValueError("isa9000:groupClaims must be SecurityGroup or ApplicationGroup")
 

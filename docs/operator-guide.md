@@ -120,7 +120,9 @@ creation, progress, review and management pages; administrators have **Admin**.
 
 ## 3. Sign-in and access
 
-Entra ID handles sign-in. Django checks the groups in the person's token on
+Entra ID handles sign-in. Everyone in the company's directory can sign in, including
+invited guests, and Microsoft blocks anyone else. A person with no library access
+signs in and sees none. Django checks the groups in the person's token on
 every request. Administrators are the members of one Entra group or people with
 the local **Application administrator** flag, and they make people creators in the
 admin. See [libraries and local access](#libraries-and-local-access).
@@ -200,8 +202,10 @@ diagnosis only and grant nothing. They see a notice with a reference ID. Find th
 access. A token with a missing or unreadable group list is handled the same way. An
 explicit empty list is a complete answer: that person simply has no Entra libraries.
 
-Restricting claims to groups assigned to the application (`groupClaims:
-ApplicationGroup`) reduces overage, subject to Microsoft's licensing and nesting limits.
+`groupClaims` defaults to `SecurityGroup`, which sends each person's security groups, so
+they appear in the admin. `groupClaims: ApplicationGroup` sends only groups assigned to
+the application. That reduces overage, subject to Microsoft's licensing and nesting
+limits, but other groups never appear in the admin.
 
 ### Administrator access and recovery
 
@@ -440,7 +444,9 @@ with its `clientId`; the workflow injects `clientSecret` from the environment
 secret `AUTH_CLIENT_SECRET`. Register both
 `https://YOUR-APP-HOST/.auth/login/aad/callback` and `https://YOUR-APP-HOST/` as web
 redirect URIs: Microsoft returns people to the landing page after sign-out only if it is
-registered. Enable ID-token issuance for Easy Auth and configure the selected group claims. Use a separate registration
+registered. Enable ID-token issuance for Easy Auth and configure the selected group claims. Set
+**Assignment required** to **No** in the Enterprise application's properties, or only people
+assigned to it can sign in. Use a separate registration
 per environment. The local callback is different.
 
 For PR previews, create a protected GitHub environment named `preview` with a
