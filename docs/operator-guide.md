@@ -184,7 +184,7 @@ grants no membership or creator rights.
 **Admin → Local library access** gives one person access to one enabled library
 without changing Entra. Each record keeps who granted it, the time, an optional reason,
 an optional expiry and any revocation. Without an expiry, access lasts until it is revoked. Records can be revoked but not edited or deleted.
-You cannot grant access to yourself. A person's access is their current Entra membership
+A person's access is their current Entra membership
 plus active local grants, and **Admin → Users → the person** shows each source.
 Revoking a local grant cannot remove access that Entra still provides. A local grant
 never changes the viewer/creator role, and it never makes anyone an administrator, even

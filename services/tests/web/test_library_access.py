@@ -238,18 +238,13 @@ class AdministratorTests(LibraryCase):
             "already exists",
         )
 
-    def test_grant_form_records_grantor_blocks_self_and_reopens_expired(self):
+    def test_grant_form_records_grantor_and_reopens_expired(self):
         self.client.get("/libraries/", **administrator())
-        me = Profile.objects.get(user__username=ADMIN_OID)
         path = "/admin/app_portal/librarygrant/add/"
         form = {
             "profile": self.profile.pk, "library": ENGINEERING, "reason": "Overage",
             "_save": "Save",
         }
-        self.assertContains(
-            self.client.post(path, {**form, "profile": me.pk}, **administrator()),
-            "cannot grant library access to yourself",
-        )
         past = timezone.now() - timedelta(hours=1)
         self.assertContains(
             self.client.post(
@@ -286,6 +281,16 @@ class AdministratorTests(LibraryCase):
         active.refresh_from_db()
         self.assertEqual(active.revoked_by.username, ADMIN_OID)
         self.assertEqual(LibraryGrant.objects.active().count(), 0)
+
+    def test_administrators_can_grant_themselves_local_access(self):
+        self.client.get("/libraries/", **administrator())
+        me = Profile.objects.get(user__username=ADMIN_OID)
+        response = self.client.post(
+            "/admin/app_portal/librarygrant/add/",
+            {"profile": me.pk, "library": ENGINEERING, "_save": "Save"}, **administrator(),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(LibraryGrant.objects.get(profile=me).granted_by, me.user)
 
     def test_sharing_targets_are_enabled_libraries_only(self):
         discovered = EntraGroup.objects.create(object_id=uuid.uuid4(), name="Directory only")

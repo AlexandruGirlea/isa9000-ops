@@ -253,8 +253,6 @@ def close_grant(grant, user, state=""):
 
 
 class LibraryGrantForm(forms.ModelForm):
-    actor = None
-
     class Meta:
         model = LibraryGrant
         fields = ("profile", "library", "reason", "expires")
@@ -265,8 +263,6 @@ class LibraryGrantForm(forms.ModelForm):
         expires = cleaned.get("expires")
         if expires and expires <= timezone.now():
             self.add_error("expires", "Choose a future time.")
-        if profile and profile.user == self.actor:
-            self.add_error("profile", "You cannot grant library access to yourself.")
         if profile and library and LibraryGrant.objects.active().filter(
             profile=profile, library=library,
         ).exists():
@@ -311,9 +307,7 @@ class LibraryGrantAdmin(AuditedAdmin):
         return fields
 
     def get_form(self, request, obj=None, **kwargs):
-        form = without_popup_links(super().get_form(request, obj, **kwargs))
-        form.actor = request.user
-        return form
+        return without_popup_links(super().get_form(request, obj, **kwargs))
 
     @admin.display(description="State")
     def state(self, obj):
