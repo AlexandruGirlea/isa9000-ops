@@ -269,7 +269,11 @@ class SignOutTests(LibraryCase):
     def test_every_sign_out_ends_on_the_landing_page(self):
         target = "/.auth/logout?post_logout_redirect_uri=/"
         self.assertContains(self.client.get("/libraries/", **self.headers), f'href="{target}"')
-        self.assertEqual(self.client.post("/admin/logout/", **administrator()).url, target)
+        # A redirect here would be blocked by form-action on its way to Microsoft.
+        page = self.client.post("/admin/logout/", **administrator())
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, f'http-equiv="refresh" content="0;url={target}"')
+        self.assertIn("form-action 'self'", page["Content-Security-Policy"])
         self.assertEqual(self.client.get("/admin/logout/", **administrator()).status_code, 405)
         self.assertEqual(self.client.post("/admin/logout/", **self.headers).status_code, 404)
         with override_settings(AUTH_MODE="dev", DEBUG=True):

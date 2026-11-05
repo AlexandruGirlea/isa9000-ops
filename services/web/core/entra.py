@@ -10,7 +10,7 @@ import msal
 import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.middleware.csrf import rotate_token
 from django.shortcuts import redirect
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -199,4 +199,8 @@ def admin_logout(request):
         return logout(request)
     request.session.flush()
     telemetry.audit("auth.logout", actor_id=request.audit_actor_id, target_type="entra")
-    return redirect(sessions.EASY_AUTH_LOGOUT)
+    # The form-action policy blocks a form's redirects that reach Microsoft; a new navigation works.
+    return HttpResponse(
+        '<!doctype html><title>Signing out</title><meta http-equiv="refresh" '
+        f'content="0;url={sessions.EASY_AUTH_LOGOUT}">'
+    )
