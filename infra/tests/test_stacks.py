@@ -204,10 +204,10 @@ def test_stack_contract(environment):
         assert name in resources
 
 
-def test_created_registration_allows_return_after_sign_out():
+def test_created_registration_only_allows_the_sign_in_callback():
     uris = run_stack("dev")["resources"]["auth-app"]["inputs"]["web"]["redirectUris"]
     host = "https://isa9000-dev-web.mock.eastus2.azurecontainerapps.io"
-    assert uris == [f"{host}/.auth/login/aad/callback", f"{host}/"]
+    assert uris == [f"{host}/.auth/login/aad/callback"]
 
 
 def test_metric_alert_uses_azure_serialized_criteria():

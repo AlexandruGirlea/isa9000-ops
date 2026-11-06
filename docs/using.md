@@ -52,6 +52,10 @@ organization's Microsoft security policy or a revoked credential may require
 sign-in earlier. After upgrading from the older one-hour sessions, sign out and
 in once so a real local session can obtain its refresh credential.
 
+**Sign out** ends your session in this application only. You stay signed in to Microsoft, so
+your other Microsoft apps keep working and signing back in here may not ask for a password. On a
+shared computer, sign out of Microsoft too.
+
 Deactivation blocks new application and media requests. It cannot recall audio
 already downloaded, including bytes buffered by the player.
 

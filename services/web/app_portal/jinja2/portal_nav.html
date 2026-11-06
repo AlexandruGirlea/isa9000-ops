@@ -4,6 +4,6 @@
   {% if request.user.is_superuser or request.user.profile.role == 'creator' %}<a href="/runs/" {% if request.path == '/runs/' %}aria-current="page"{% endif %}><i class="bi bi-clock-history" aria-hidden="true"></i> History</a><a href="/contact/" {% if request.path == '/contact/' %}aria-current="page"{% endif %}><i class="bi bi-envelope" aria-hidden="true"></i> Contact</a>{% endif %}
   {% if request.user.is_superuser %}<a href="/admin/"><i class="bi bi-gear" aria-hidden="true"></i> Admin</a>{% endif %}
   {% set person = request.user.get_full_name() ~ ' (' ~ ('Administrator' if request.user.is_superuser else request.user.profile.get_role_display()) ~ ')' %}
-  {% if local_auth %}<form method="post" action="/.auth/logout">{{ csrf_input }}<button title="Signed in as {{ person }}"><i class="bi bi-box-arrow-right" aria-hidden="true"></i> Sign out</button></form>{% else %}<a href="/.auth/logout?post_logout_redirect_uri=/" title="Signed in as {{ person }}"><i class="bi bi-box-arrow-right" aria-hidden="true"></i> Sign out</a>{% endif %}
+  <form method="post" action="/signout/">{{ csrf_input }}<button title="Signed in as {{ person }}"><i class="bi bi-box-arrow-right" aria-hidden="true"></i> Sign out</button></form>
 </nav>
 {% endif %}

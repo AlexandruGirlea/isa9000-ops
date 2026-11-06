@@ -68,10 +68,7 @@ def course_page(request, course_id):
             return redirect("manage", course_id=course.id)
         raise Http404
     # The worker's page is the same for everyone; the navbar depends on who is viewing.
-    nav = render_to_string(
-        "portal_nav.html", {"local_auth": settings.AUTH_MODE in {"dev", "entra"}},
-        request, using="jinja2"
-    )
+    nav = render_to_string("portal_nav.html", request=request, using="jinja2")
     css = render_to_string("portal_nav.css", using="jinja2")
     html = re.sub(
         r'(<div class="ui-toggles">.*?</div>)', lambda match: match[1] + nav, course.html,

@@ -27,7 +27,7 @@ def excluded(path):
     return (
         path in {
             "/", "/index.html", "/healthz", "/.auth/login/aad", "/.auth/logout",
-            "/auth/login/aad/callback",
+            "/auth/login/aad/callback", sessions.SIGNED_OUT,
         }
         or path.startswith("/static/")
         or re.fullmatch(r"/internal/runs/[0-9a-fA-F-]{36}/[a-z]+", path) is not None

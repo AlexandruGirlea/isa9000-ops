@@ -266,21 +266,62 @@ class BrowserPopupTests(LibraryCase):
 
 
 class SignOutTests(LibraryCase):
-    def test_every_sign_out_ends_on_the_landing_page(self):
-        target = "/.auth/logout?post_logout_redirect_uri=/"
-        self.assertContains(self.client.get("/libraries/", **self.headers), f'href="{target}"')
-        # A redirect here would be blocked by form-action on its way to Microsoft.
-        page = self.client.post("/admin/logout/", **administrator())
-        self.assertEqual(page.status_code, 200)
-        self.assertContains(page, f'http-equiv="refresh" content="0;url={target}"')
-        self.assertIn("form-action 'self'", page["Content-Security-Policy"])
-        self.assertEqual(self.client.get("/admin/logout/", **administrator()).status_code, 405)
+    def test_signing_out_ends_only_the_portal_session(self):
+        page = self.client.get("/libraries/", **self.headers)
+        self.assertContains(page, '<form method="post" action="/signout/">')
+        self.assertNotContains(page, "/.auth/logout")
+        for path, headers in (("/signout/", self.headers), ("/admin/logout/", administrator())):
+            with self.subTest(path):
+                self.client.get("/libraries/", **headers)
+                self.assertIn("session_oid", self.client.session)
+                self.assertEqual(self.client.get(path, **headers).status_code, 405)
+                self.assertEqual(self.client.post(path, **headers).url, "/signed-out/")
+                self.assertNotIn("session_oid", self.client.session)
         self.assertEqual(self.client.post("/admin/logout/", **self.headers).status_code, 404)
+
+    def test_sign_out_form_passes_csrf(self):
+        client = Client(enforce_csrf_checks=True)
+        page = client.get("/libraries/", **self.headers).content.decode()
+        form = re.search(r'action="/signout/">.*?value="([^"]+)"', page, re.S)
+        self.assertEqual(client.post("/signout/", **self.headers).status_code, 403)
+        response = client.post("/signout/", {"csrfmiddlewaretoken": form[1]}, **self.headers)
+        self.assertEqual(response.url, "/signed-out/")
+
+    def test_signed_out_page_clears_azure_without_following_it_to_microsoft(self):
+        page = Client().get("/signed-out/")
+        self.assertContains(page, 'fetch("/.auth/logout", {redirect: "manual"})')
+        self.assertContains(page, 'location.replace("/")')
+        self.assertNotContains(page, "/static/session.js")
+        policy = page["Content-Security-Policy"]
+        nonce = re.search(r'nonce="([^"]+)"', page.content.decode())[1]
+        self.assertIn(f"'nonce-{nonce}'", policy)
+        self.assertIn("connect-src 'self'", policy)
+        self.assertEqual(Client().post("/signed-out/").status_code, 405)
+
+    def test_an_ended_session_never_reaches_microsoft(self):
+        self.client.get("/libraries/", **self.headers)
+        self.assertEqual(self.client.get("/libraries/", **token(exp=1)).url, "/signed-out/")
+        for method, path in (("get", "/libraries/"), ("post", "/session/activity/")):
+            with self.subTest(path):
+                self.client.get("/libraries/", **self.headers)
+                session = self.client.session
+                session["last_activity"] = 0
+                session.save()
+                response = getattr(self.client, method)(path, **self.headers)
+                if method == "post":
+                    self.assertEqual(response.status_code, 401)
+                    self.assertEqual(response.json(), {"signin": "/signed-out/"})
+                else:
+                    self.assertEqual(response.url, "/signed-out/")
+
+    def test_local_sign_out_ends_on_the_landing_page(self):
         with override_settings(AUTH_MODE="dev", DEBUG=True):
             client = Client()
-            client.post("/.auth/login/aad")
-            self.assertEqual(client.post("/admin/logout/").url, "/")
-            self.assertEqual(client.get("/libraries/").url, "/")
+            for path in ("/signout/", "/admin/logout/"):
+                client.post("/.auth/login/aad")
+                self.assertEqual(client.post(path).url, "/")
+                self.assertEqual(client.get("/libraries/").url, "/")
+            self.assertEqual(client.get("/signed-out/").status_code, 404)
 
 
 class AdminCatalogueTests(LibraryCase):
