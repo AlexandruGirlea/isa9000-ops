@@ -4,20 +4,48 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
+
+
+def person_name(user):
+    name = user.get_full_name()
+    if name and user.email:
+        return f"{name} ({user.email})"
+    return name or user.email or user.username
 
 
 class EntraGroup(models.Model):
     object_id = models.UUIDField(primary_key=True)
     name = models.CharField(max_length=255, blank=True)
+    # The db_default values let the previous release keep writing during a rolling update.
+    status = models.CharField(
+        max_length=10,
+        default="hidden",
+        db_default="hidden",
+        db_index=True,
+        choices=[
+            ("hidden", "Hidden"),
+            ("enabled", "Enabled"),
+        ],
+        help_text="<b>Hidden:</b> nobody can use it in the portal, including administrators. "
+        "Groups appear here this way automatically when a member signs in. Hiding a library "
+        "stops its pages, audio and shared podcasts. All data is kept, and setting Enabled again "
+        "restores it.<br>"
+        "<b>Enabled:</b> a library. Creators and administrators see it straight away and can add "
+        "podcasts to it. Other members see it once it has a published podcast.",
+    )
 
     class Meta:
-        verbose_name = "Entra group"
-        verbose_name_plural = "Entra groups"
+        verbose_name = "library"
+        verbose_name_plural = "libraries / Entra groups"
         ordering = ("name", "object_id")
 
     def __str__(self):
-        return self.name or f"Unnamed group {str(self.object_id)[:8]}"
+        return self.name or str(self.object_id)
+
+    def clean(self):
+        self.name = self.name.strip() or str(self.object_id)
 
 
 class Profile(models.Model):
@@ -27,6 +55,25 @@ class Profile(models.Model):
     )
     groups = models.ManyToManyField(
         EntraGroup, related_name="people", blank=True, verbose_name="Entra groups"
+    )
+    membership = models.CharField(
+        "directory membership",
+        max_length=8,
+        default="complete",
+        db_default="complete",
+        choices=[
+            ("complete", "Complete"),
+            ("overage", "Too many groups for sign-in"),
+            ("missing", "No groups in sign-in"),
+            ("failed", "Unreadable groups in sign-in"),
+        ],
+    )
+    local_admin = models.BooleanField(
+        "application administrator",
+        default=False,
+        db_default=False,
+        help_text="Grants administrator access independently of Entra groups. "
+        "Takes effect on this person's next request.",
     )
     last_seen = models.DateTimeField(default=timezone.now)
 
@@ -39,6 +86,54 @@ class Profile(models.Model):
         return f"{name} ({self.user.email})" if self.user.email else name
 
 
+class LibraryGrantQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(
+            Q(expires__isnull=True) | Q(expires__gt=timezone.now()), revoked__isnull=True
+        )
+
+
+class LibraryGrant(models.Model):
+    profile = models.ForeignKey(
+        Profile, on_delete=models.CASCADE, related_name="library_grants", verbose_name="user"
+    )
+    library = models.ForeignKey(
+        EntraGroup,
+        on_delete=models.PROTECT,
+        related_name="grants",
+        limit_choices_to={"status": "enabled"},
+    )
+    reason = models.CharField(max_length=500, blank=True)
+    expires = models.DateTimeField(
+        null=True, blank=True, help_text="Leave empty for access until it is revoked."
+    )
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    revoked = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+
+    objects = LibraryGrantQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = "local library access"
+        verbose_name_plural = "local library access"
+        ordering = ("-created",)
+        constraints = (
+            models.UniqueConstraint(
+                fields=("profile", "library"),
+                condition=Q(revoked__isnull=True),
+                name="one_open_library_grant",
+            ),
+        )
+
+    def __str__(self):
+        return f"{self.profile} \u2192 {self.library}"
+
+
 class Course(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     group = models.ForeignKey(
@@ -46,6 +141,7 @@ class Course(models.Model):
     )
     shared_groups = models.ManyToManyField(
         EntraGroup, related_name="shared_courses", blank=True, verbose_name="Additional libraries",
+        limit_choices_to={"status": "enabled"},
         help_text="Share published audio with these libraries. "
         "Editing stays with the owning library.",
     )
@@ -75,6 +171,32 @@ class Course(models.Model):
 
     def __str__(self):
         return self.title or f"Untitled podcast {str(self.id)[:8]}"
+
+
+class ContactRequest(models.Model):
+    body = models.TextField("message")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+",
+        verbose_name="sent by",
+    )
+    created = models.DateTimeField("sent", auto_now_add=True)
+    status = models.CharField(
+        max_length=11,
+        default="todo",
+        choices=[("todo", "To do"), ("in_progress", "In progress"), ("done", "Done")],
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    updated = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "contact request"
+        verbose_name_plural = "contact requests"
+        ordering = ("-created",)
+
+    def __str__(self):
+        return f"Request {self.pk} from {person_name(self.created_by)}"
 
 
 class LocalTestUser(models.Model):
@@ -117,7 +239,7 @@ class Run(models.Model):
             ("ready", "Ready"),
             ("needs_review", "Needs review"),
             ("failed", "Failed"),
-            ("stopped", "Stopped"),
+            ("stopped", "User canceled"),
         ],
     )
     steps = models.JSONField(default=list, blank=True)
@@ -126,6 +248,9 @@ class Run(models.Model):
     error = models.TextField(blank=True)
     error_source = models.CharField(max_length=7, blank=True)
     cancel_requested = models.BooleanField(default=False)
+    canceled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     last_seen = models.DateTimeField(default=timezone.now)
     created = models.DateTimeField(auto_now_add=True)
     finished = models.DateTimeField(null=True, blank=True)
@@ -137,3 +262,7 @@ class Run(models.Model):
 
     def __str__(self):
         return f"{self.get_task_display()}: {self.course} — {self.get_status_display()}"
+
+    @property
+    def canceled_by_name(self):
+        return person_name(self.canceled_by) if self.canceled_by else ""

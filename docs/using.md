@@ -11,21 +11,32 @@ browser. Employees do not need GitHub, Docker, Python or Azure access.
 ## Administrators: set up the audience
 
 1. Sign in with Microsoft using an account in the configured administrator group.
-2. Open **Admin → Entra groups** and give your team groups readable names.
-   Groups appear when their members sign in.
+2. Open **Admin → Libraries / Entra groups**. Each group appears, named after its Entra ID, once a member
+   signs in. Open your team's groups, give them readable names and set them to **Enabled**.
+   Other groups stay hidden from everyone.
 3. Ask prospective creators to sign in once, then set their role under
    **Admin → Users**.
 4. Leave other employees as viewers. Their Entra group memberships determine
    which libraries they can access.
 
-Each Entra group has one library. An empty library appears after its first
-podcast is created; viewers see it after a podcast is published.
+Each enabled library belongs to one Entra group. Creators and administrators see it
+straight away; viewers see it after a podcast is published.
+
+Someone in too many Entra groups can see a notice with a reference ID instead of their
+libraries. Find them under **Admin → Users** and add **Local library access**; see
+[group overage](operator-guide.md#group-overage).
 
 New accounts are active automatically. To stop someone using the application,
 open **Admin → Users → the person**, clear **Active** and save. This blocks
 new sign-ins and existing sessions on their next application request. Checking
 **Active** again restores access without changing their role or group membership.
 The user list also shows and filters by Active status. Changes are audited.
+
+## Creators: ask for something
+
+**Contact** in the navigation bar opens a short form. Use it to ask your administrators for
+what you need, such as a library for your department. Administrators see requests under
+**Admin → Contact requests** and set each one to **To do**, **In progress** or **Done**.
 
 ## Staying signed in
 
@@ -40,20 +51,27 @@ organization's Microsoft security policy or a revoked credential may require
 sign-in earlier. After upgrading from the older one-hour sessions, sign out and
 in once so a real local session can obtain its refresh credential.
 
+**Sign out** ends your session in this application only. You stay signed in to Microsoft, so
+your other Microsoft apps keep working and signing back in here may not ask for a password. On a
+shared computer, sign out of Microsoft too.
+
 Deactivation blocks new application and media requests. It cannot recall audio
 already downloaded, including bytes buffered by the player.
 
 ## Creators: turn a document into a podcast
 
-1. Open a library and choose **New podcast**. For a group without podcasts,
-   use **Libraries → New library**.
-2. Give it a title and explain the audience and what they should learn.
+1. Open a library and choose **New podcast**. For a library without podcasts,
+   use **Libraries → Add podcast**.
+2. Explain the audience and what they should learn. The title is optional; without one,
+   isa9000 chooses it. The title on a generated cover always comes from isa9000 and may
+   differ from yours.
 3. Upload source documents or add public HTTP/HTTPS links. Upload internal
    documents; links requiring company sign-in are not fetched with your account.
 4. Choose the narrator and wording settings. **Review transcripts before recording**
    is selected by default; check source accuracy before approving publication.
 5. Start creation and follow progress. You can close the page and find it again
-   through **History**.
+   through **History**. **Cancel processing** stops the run and deletes what it created so
+   far; it cannot be resumed.
 6. Read the transcripts and review notes. Edit where needed, then select
    **Approve & record audio**.
 7. Once ready, open the podcast, listen and share its company URL with colleagues

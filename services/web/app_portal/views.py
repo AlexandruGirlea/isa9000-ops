@@ -4,7 +4,6 @@ import re
 import uuid
 from copy import deepcopy
 from pathlib import PurePosixPath
-from urllib.parse import quote
 
 from azure.core.exceptions import ResourceNotFoundError
 from core.audit import record
@@ -22,7 +21,6 @@ from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
-from isa9000.presentation_website import _total_duration
 
 from app_portal.covers import CoverForm, update_cover
 from app_portal.forms import ApprovalForm, CreateForm, TitleForm
@@ -33,75 +31,22 @@ from app_portal.permissions import (
     group_for,
     groups_for,
     is_creator,
-    visible_courses,
 )
 from app_portal.runs import new_run
 from shared import storage
 
-
-@require_safe
-def libraries(request):
-    groups = list(groups_for(request.user))
-    creator = is_creator(request.user)
-    items = []
-    for group in groups:
-        courses = visible_courses(request.user, group)
-        newest = courses.order_by("-updated").first()
-        if newest is None:
-            continue
-        items.append(
-            {
-                "group": group,
-                "count": courses.count(),
-                "updated": newest.updated if newest else None,
-                "cover": f"/media/{newest.id}/{quote(newest.cover)}"
-                if newest and newest.cover
-                else "",
-            }
-        )
-    return page(request, "libraries.html", {"libraries": items, "creator": creator})
-
-
-@require_safe
-def new_library(request):
-    if not is_creator(request.user):
-        raise Http404
-    return page(
-        request,
-        "new_library.html",
-        {"groups": groups_for(request.user).filter(courses__isnull=True)
-         .exclude(shared_courses__status="ready").distinct()},
-    )
-
-
-@require_safe
-def library(request, group_id):
-    group = group_for(request.user, group_id)
-    creator = is_creator(request.user)
-    courses = visible_courses(request.user, group)
-    managed_groups = (
-        set(groups_for(request.user).values_list("pk", flat=True)) if creator else set()
-    )
-    items = []
-    for course in courses:
-        episodes = course.manifest.get("episodes", [])
-        seconds = int(sum(episode.get("seconds") or 0 for episode in episodes))
-        items.append(
-            {
-                "course": course,
-                "can_manage": course.group_id in managed_groups,
-                "episodes": len(episodes),
-                "duration": _total_duration(seconds) if seconds else "",
-                "cover": f"/media/{course.id}/{quote(course.cover)}" if course.cover else "",
-            }
-        )
-    return page(request, "library.html", {"group": group, "courses": items, "creator": creator})
-
-
-@require_safe
-def library_index(request, group_id):
-    group_for(request.user, group_id)
-    return redirect("library", group_id=group_id)
+CANCEL_WARNING = (
+    "Cancel processing? This stops the run and deletes any transcripts and recordings it has "
+    "created so far. It cannot be resumed."
+)
+HISTORY_LABELS = {
+    "queued": "Queued", "running": "In progress", "ready": "Ready", "needs_review": "Needs review",
+    "failed": "Failed", "stopped": "User canceled", "draft": "Draft",
+}
+FAILURE_MESSAGE = (
+    "Something went wrong and this podcast could not be finished. "
+    "Your administrators have been notified."
+)
 
 
 @require_safe
@@ -122,10 +67,7 @@ def course_page(request, course_id):
             return redirect("manage", course_id=course.id)
         raise Http404
     # The worker's page is the same for everyone; the navbar depends on who is viewing.
-    nav = render_to_string(
-        "portal_nav.html", {"local_auth": settings.AUTH_MODE in {"dev", "entra"}},
-        request, using="jinja2"
-    )
+    nav = render_to_string("portal_nav.html", request=request, using="jinja2")
     css = render_to_string("portal_nav.css", using="jinja2")
     html = re.sub(
         r'(<div class="ui-toggles">.*?</div>)', lambda match: match[1] + nav, course.html,
@@ -215,6 +157,32 @@ def check_source(request, group_id):
     return JsonResponse({"ok": True, "detail": "Valid public URL"})
 
 
+def history_row(course):
+    run = next(iter(course.history_runs), None)
+    status = run.status if run and run.status != "ready" else course.status
+    if status == "needs_review":
+        action, url = "Review transcripts", f"/courses/{course.id}/manage/"
+    elif run:
+        action = (
+            "View progress" if status in {"queued", "running"}
+            else "View result" if status == "ready" else "View details"
+        )
+        url = f"/runs/{run.id}/"
+    elif status == "ready":
+        action, url = "View podcast", f"/courses/{course.id}/"
+    else:
+        action, url = "Edit podcast", f"/courses/{course.id}/manage/"
+    return {
+        "id": str(course.id),
+        "title": course.title or "Podcast in progress",
+        "status": status,
+        "label": HISTORY_LABELS.get(status, "Draft"),
+        "canceled_by": run.canceled_by_name if run and status == "stopped" else "",
+        "action": action,
+        "url": url,
+    }
+
+
 @require_safe
 def history(request):
     if not is_creator(request.user):
@@ -222,21 +190,26 @@ def history(request):
     courses = (
         Course.objects.filter(created_by=request.user, group__in=groups_for(request.user))
         .select_related("group")
+        .defer("html", "manifest", "generation_settings")
         .prefetch_related(
             Prefetch(
                 "runs",
-                queryset=Run.objects.only("id", "course_id", "status", "created")
+                queryset=Run.objects.select_related("canceled_by")
+                .only(
+                    "id", "course_id", "status", "created", "canceled_by__first_name",
+                    "canceled_by__last_name", "canceled_by__email", "canceled_by__username",
+                )
                 .order_by("-created", "-id"),
                 to_attr="history_runs",
             )
         )
         .order_by("-created", "-id")
     )
-    return page(
-        request,
-        "history.html",
-        {"courses": Paginator(courses, 10).get_page(request.GET.get("page"))},
-    )
+    pages = Paginator(courses, 10).get_page(request.GET.get("page"))
+    rows = [(course, history_row(course)) for course in pages]
+    if request.headers.get("Accept") == "application/json":
+        return JsonResponse({"rows": [row for _, row in rows]})
+    return page(request, "history.html", {"courses": pages, "rows": rows})
 
 
 @require_http_methods(["GET", "POST"])
@@ -393,12 +366,14 @@ def run_page(request, run_id):
                 run = Run.objects.select_for_update().get(pk=run.id)
                 action = request.POST.get("action")
                 if action == "stop" and run.status in {"queued", "running"}:
-                    run.cancel_requested = True
+                    run.cancel_requested, run.canceled_by = True, request.user
                     if run.status == "queued":
                         run.status, run.finished = "stopped", timezone.now()
-                    run.save(update_fields=["cancel_requested", "status", "finished"])
+                    run.save(
+                        update_fields=["cancel_requested", "canceled_by", "status", "finished"]
+                    )
                     record(
-                        request.user, "run.stop_requested", run,
+                        request.user, "run.canceled", run,
                         changed_fields=["cancel_requested"],
                         run_id=str(run.id), course_id=str(course.id),
                         operation_correlation_id=run.correlation_id,
@@ -448,7 +423,7 @@ def run_page(request, run_id):
         "needs_review": "Awaiting your approval",
     }.get(run.status, run.get_status_display())
     if run.cancel_requested and run.status == "running":
-        status_label = "Stopping and saving your work…"
+        status_label = "Canceling…"
     historical_review = run.status == "needs_review" and (
         run.course.status == "ready" or active_run is not None
     )
@@ -466,14 +441,17 @@ def run_page(request, run_id):
         run.text_only or run.course.status == "needs_review"
         or run.course.manifest.get("review", {}).get("approved") is False
     ) and run.course.status != "ready"
+    # Raw errors and engine output stay in the admin; they can expose internal details.
+    failure = FAILURE_MESSAGE if run.status == "failed" else ""
+    activity = run.log if request.user.is_superuser else []
     if request.headers.get("Accept") == "application/json":
         return JsonResponse(
             {
                 "status": run.status,
                 "label": status_label,
                 "steps": steps,
-                "log": run.log,
-                "error": run.error,
+                "log": activity,
+                "error": failure,
                 "cancel_requested": run.cancel_requested,
             }
         )
@@ -481,7 +459,8 @@ def run_page(request, run_id):
         request,
         "run.html",
         {
-            "run": run, "messages": run.log, "active": run.status in {"queued", "running"},
+            "run": run, "messages": activity, "failure": failure, "cancel_warning": CANCEL_WARNING,
+            "active": run.status in {"queued", "running"},
             "status_label": status_label, "steps": steps, "course": run.course,
             "review_retry": review_retry,
             "approval_form": ApprovalForm(initial={"revision": run.course.updated.isoformat()}),

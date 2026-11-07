@@ -1,0 +1,15 @@
+{% extends "portal_base.html" %}
+{% block extra_css %}{{ catalog_css }}{{ super() }}{% endblock %}
+{% block header_class %}scrolled solid{% endblock %}
+{% block content %}
+<section id="catalog" class="section bg-gray"><div class="container">
+<nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><span>Add podcast</span></nav>
+<div class="portal-heading"><h1>Add podcast</h1></div>
+<p class="portal-intro">Choose the library this podcast belongs to. Everyone in that library can listen once it is published.</p>
+{% if pages or query %}{% include "catalog_search.html" %}{% endif %}
+<div id="catalog-cards" class="row g-4">{% for group in pages %}<div class="col-md-6 catalog-item"><div class="catalog-card">
+  <a class="catalog-card-link" href="/libraries/{{ group.object_id }}/new/"><div class="catalog-card-body"><div class="catalog-text"><h5>{{ group }}</h5><p>Add a podcast <i class="bi bi-arrow-right" aria-hidden="true"></i></p></div></div></a>
+</div></div>{% else %}<div class="col-12"><div class="portal-empty">{% if query %}No libraries match your search.{% else %}No library is available yet. <a href="/contact/">Ask your administrators to enable one.</a>{% endif %}</div></div>{% endfor %}</div>
+{% include "catalog_pages.html" %}
+</div></section>
+{% endblock %}

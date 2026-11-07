@@ -24,8 +24,9 @@ Two prerequisites must be satisfied before treating this as a production recipe:
   supplied certificates, internal ingress and private Postgres networking are
   not yet supported by the provisioning code.
 
-Deployments use Azure end to end, including ingress/WAF, certificates and
-private networking.
+Deployments use Azure HTTPS ingress and certificates. The production Container
+Apps VNet supports zone redundancy; it does not provide a WAF or private endpoints
+for the database, queue, storage or vault.
 If a company domain or private networking is required from day one, complete that
 implementation before provisioning. [Discuss a pilot with us](https://girlea.ro).
 
@@ -45,6 +46,50 @@ remaining vendor findings before an approved rollout.
 
 Use [Client networking](networking.md) for the resource IDs IT supplies,
 commented Pulumi examples and the integration/verification sequence.
+
+## Production resource defaults
+
+Setting `isa9000:environment: prod` selects this cost-conscious baseline:
+
+| Service | Production default |
+| --- | --- |
+| Django | 2 vCPU / 4 GiB per replica; minimum 1, maximum 5; HTTP autoscaling |
+| Workers | 2 vCPU / 4 GiB per execution; 0–5 concurrent executions, one replica per execution |
+| Container Apps environment | Consumption workload profile, zone redundancy, dedicated VNet/subnet |
+| PostgreSQL 16 | General Purpose `Standard_D2ds_v5` (2 vCPU / 8 GiB), no standby |
+| Database disk | 128 GiB, automatic growth enabled |
+| Database backups | 35-day retention, point-in-time restore, geo-redundant backup |
+| Podcast storage | Standard GZRS, blob versioning, 30-day blob/container deletion recovery |
+| Queue | Service Bus Standard, public endpoint, TLS and managed identity; local keys disabled |
+
+These are capacity and data-recovery defaults, not a guarantee of uninterrupted
+service. Minimum one Django replica saves idle cost but cannot keep a second live
+copy in another zone. Azure spreads replicas when multiple copies run. PostgreSQL
+has no HA standby or automatic standby failover; recovery can require restoring
+backups and switching the application to a new server. Regional copies are
+asynchronous, so recent writes can be lost during a regional disaster. Service Bus
+Standard has no Private Link or configured cross-region queue replication. Test
+restore procedures, load and AI quotas before relying on the installation.
+
+Production creates an external Container Apps environment in its own VNet. Default
+ranges are `10.42.0.0/16` for the VNet and `10.42.0.0/23` for the subnet; override
+`containerAppsVnetCidr` and `containerAppsSubnetCidr` before creation if they overlap
+your network. The IPv4 subnet must be within the VNet and at least /27 in size. It
+is delegated to `Microsoft.App/environments`. Register `Microsoft.Network` along
+with the other resource providers. Choose a region supporting Container Apps zones,
+GZRS, the database SKU and geo backups. See Microsoft's
+[zone redundancy requirements](https://learn.microsoft.com/en-us/azure/container-apps/how-to-zone-redundancy).
+
+For existing installations, zone redundancy and the infrastructure subnet need a
+new Container Apps environment and a planned cutover, including the changed host
+and Entra callbacks. Geo database backups must be configured at server creation;
+storage redundancy conversions depend on the existing account and region. Database
+disks cannot shrink. Review replacement/conversion steps and preserve data before
+applying these defaults to an existing stack; do not bypass resource protection.
+
+Dev/test retain small compute, Burstable PostgreSQL, LRS storage and a Basic queue.
+Existing stack overrides such as `webMinReplicas`, `webMaxReplicas`, `postgresSku` and
+`postgresTier` take precedence over defaults; review them when adopting this profile.
 
 ## Key Vault is included
 
@@ -77,7 +122,7 @@ review Git history. `.gitignore` does not remove existing files or past commits.
 IT needs:
 
 - An Azure subscription and region, with approved spending and model availability.
-- Azure CLI, Pulumi and uv on the setup computer.
+- Azure CLI, GitHub CLI, Pulumi and uv on the setup computer.
 - Permission to create resources and role assignments for the one-time bootstrap.
 - An Entra administrator for sign-in registration and group configuration.
 - An application administrator group, pilot-team groups and a pilot creator.
@@ -108,7 +153,7 @@ config:
   isa9000:imageTag: "sha256:YOUR-PUBLISHED-IMAGE-DIGEST"
   isa9000:alertEmail: audio-operations@example.com
   isa9000:authApp: create
-  isa9000:groupClaims: ApplicationGroup
+  isa9000:groupClaims: SecurityGroup
   isa9000:foundry:
     endpoint: https://YOUR-RESOURCE.cognitiveservices.azure.com/
     resourceId: /subscriptions/YOUR-SUBSCRIPTION-ID/resourceGroups/YOUR-AI-GROUP/providers/Microsoft.CognitiveServices/accounts/YOUR-RESOURCE
@@ -161,6 +206,11 @@ This **creates Azure resources and role assignments**: private Pulumi state
 storage, three deployment identities and a preview identity. It prints their
 IDs and backend settings. The repository argument must name your company copy.
 
+It first reads that repository's OIDC subject format through `gh api`, because new
+GitHub repositories use subjects containing owner and repository IDs. Sign in with
+`gh auth login`, or set `GITHUB_OIDC_SUBJECT_PREFIX` to the part before
+`:environment:ENV`. Rerunning the script updates the federated credentials.
+
 Deployment identities receive Contributor only on their environment resource group
 and conditional Role Based Access Control Administrator for the required workload
 roles and service principals. Each identity can access only its environment's state
@@ -171,12 +221,17 @@ The shared bootstrap resources are retained outside the application stacks.
 With `authApp: create`, an Entra administrator must grant the three deployment
 identities Microsoft Graph `Application.ReadWrite.OwnedBy`. Pulumi then creates
 a tenant-only sign-in registration with the Azure callback automatically.
+Everyone in the directory, including invited guests, can sign in; libraries still
+depend on their groups. To handle people in too many groups automatically, see
+[group overage](operator-guide.md#group-overage).
 An existing IT-managed registration is an alternative; see
 [registration details](operator-guide.md#11-bootstrap-and-secrets).
 
 IT must preregister the Azure resource providers used by the deployment. If
 Foundry lives outside the application resource group, its owner must grant the
-worker the required role there; do not expand the deploy identity to the subscription.
+worker **Cognitive Services User** there, using the stack output `workerPrincipalId`;
+do not expand the deploy identity to the subscription. The stack creates this grant
+itself only for an account inside the application resource group.
 
 For an existing installation, plan state migration before using the new backend
 containers or changing resource-group ownership. Changing `createResourceGroup`
@@ -272,7 +327,8 @@ production acceptance.
 Open the dev `webUrl` and complete [Create and listen](using.md):
 
 1. Confirm Microsoft sign-in and administrator access using real work accounts.
-2. Assign a creator, name the pilot group and publish one small approved podcast.
+2. After a pilot member signs in, name the group under **Admin → Libraries / Entra groups** and set it to
+   **Enabled**. Assign a creator and publish one small approved podcast.
 3. Confirm that a viewer in that group can play it, read transcripts and seek audio.
 4. Confirm that someone outside the group cannot open its pages or request media.
 5. Check the logo, name, review workflow, run history and failure messages.

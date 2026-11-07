@@ -1,7 +1,7 @@
-<div class="description-editor" data-description-preview="{{ description_preview_url }}">
-  <label for="id_description">Description <span class="hint">Optional</span></label>
+<div class="description-editor" data-description-preview="{{ description_preview_url }}" data-description-placeholder="{{ description_placeholder|default('What will listeners learn? Add useful links and reference material.') }}">
+  <label for="id_description">{{ description_label|default('Description') }} <span class="hint">{{ description_hint|default('Optional') }}</span></label>
   {{ description_field }}{{ description_field.errors }}
   <div id="description-editor" hidden></div>
-  <p class="hint" id="description-help">Format your description with the toolbar, or switch to Markdown. Include document links, tables, checklists and images by URL. Up to 10,000 characters.</p>
+  <p class="hint" id="description-help">{{ description_help|default('Format your description with the toolbar, or switch to Markdown. Include document links, tables, checklists and images by URL. Up to 10,000 characters.') }}</p>
   <p class="hint" data-description-status role="status"></p>
 </div>
