@@ -1,15 +1,3 @@
-# Local instructions and build notes for coding agents (Claude Code, Codex)
-CLAUDE.md
-AGENT.md
-AGENTS.md
-BUILD_PROMPT.md
-GOALS.md
-HOSTED_DEPLOYMENT_REPORT.md
-.gstack/
-
-# Describes working attack paths
-vulnerabilities.md
-
 # IDE and OS
 .idea/
 .DS_Store
@@ -20,7 +8,7 @@ vulnerabilities.md
 !.env.example
 isa9000.local.toml
 
-# Pulumi stack settings name our Azure subscription; CI writes them from GitHub
+# Pulumi stack settings name the Azure subscription; CI writes them from GitHub
 infra/Pulumi.*.yaml
 !infra/Pulumi.example.yaml
 local/foundry/Pulumi.local.yaml
