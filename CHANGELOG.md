@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
 
 - **Upgrade note:** groups no longer become libraries by themselves. On upgrade, groups that
   own or receive a podcast become enabled libraries and all other groups are
