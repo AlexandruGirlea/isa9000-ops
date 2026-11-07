@@ -57,7 +57,7 @@ your incident process. Removing a file or rewriting history does not revoke a ke
 
 ## Maintainer controls
 
-Dependency updates are tracked with Dependabot. CI checks licensing, tests and the
+Review dependency updates at each release. CI checks licensing, tests and the
 container vulnerability scan; releases retain image provenance and an SBOM.
 Review proposed dependency changes, bundled notices and scan findings before release.
 

@@ -55,18 +55,19 @@ audited by actor, episode, time and correlation ID without logging transcript te
 Creators can choose narration and wording without access to model deployments,
 credentials or another group's content. A run keeps a snapshot of those choices,
 so reopening progress, retrying and recording after review use the same settings.
-There is one account system (Entra), one membership source (Entra groups) and
-one application database (Postgres).
+There is one account system (Entra), one source of directory membership (Entra
+groups, optionally supplemented by audited local grants) and one application
+database (Postgres).
 
 See the [architecture overview](architecture.md) for the main generation path.
 
 ## 2. Pages
 
-People see each Entra group as a **library**.
+People see each enabled Entra group as a **library**.
 Each library contains **podcasts**, each podcast contains episodes, and each
 creation, recording or rendering attempt is a **run**. The standard Django
-admin exposes **Entra groups**, **Podcasts**, **Runs** and **Users**;
-the user UI labels those groups **Libraries**.
+admin exposes **Libraries / Entra groups**, **Local library access**, **Podcasts**, **Runs** and
+**Users**.
 
 Optional podcast descriptions use the standard Vditor rich-text editor (up to
 10,000 characters). Its toolbar offers visual editing, Markdown source, preview,
@@ -87,11 +88,12 @@ used. Third-party notices are included beside the vendored assets. Vditor and
 the Markdown parser are maintained open-source projects without formal LTS release
 lines; Django stays on the 5.2 LTS line.
 
-**Libraries** always opens the library list. It shows a card only when a
-group has podcasts visible to that user: membership in five groups with
-podcasts in two gives two cards. Viewers see ready podcasts; creators also
-see drafts in their accessible groups. **New library** lets creators choose
-an empty Entra group and create its first podcast.
+**Libraries** always opens the library list. A viewer sees a card only when an
+enabled library has a ready podcast: membership in five libraries with podcasts in
+two gives two cards. Creators and administrators see every enabled library they can
+access, including empty ones and drafts. **Add podcast** lets creators choose any
+enabled library they can access.
+Library and podcast pages show 24 cards per page, with server-side search.
 
 The portal navbar shows **Libraries**, **History** for creators, and **Admin**
 for administrators. Breadcrumbs follow **Libraries → group library → podcast**
@@ -117,23 +119,27 @@ creation, progress, review and management pages; administrators have **Admin**.
 
 ## 3. Sign-in and access
 
-Entra ID handles sign-in. Django checks the groups in the person's token on
-every request. Super admins are the members of one Entra group, and they make
-people creators in the admin.
+Entra ID handles sign-in. Everyone in the company's directory can sign in, including
+invited guests, and Microsoft blocks anyone else. A person with no library access
+signs in and sees none. Django checks the groups in the person's token on
+every request. Administrators are the members of one Entra group or people with
+the local **Application administrator** flag, and they make people creators in the
+admin. See [libraries and local access](#libraries-and-local-access).
 
-The admin uses Django's standard layout. Administrators edit group display
-names and viewer/creator roles under **Entra groups** and **Users**. Roles
-persist across sign-ins, and administrators are labelled **Administrator**.
+The admin uses Django's standard layout. Administrators manage libraries and
+viewer/creator roles under **Libraries** and **Users**. Roles persist across
+sign-ins, and administrators are labelled **Administrator**.
 Run results and **Activity** are read-only. Local sign-in uses real Entra tokens;
 the configured admin group controls administrator access in every environment.
 Anonymous protected requests go to sign-in. The only unauthenticated surfaces
 are sign-in/OAuth endpoints, static assets and health; worker callbacks require
 their separate bearer credential. Error pages are standalone and load no app UI.
 
-New users start as viewers. Membership in the configured administrator group grants
-administrator access; other users retain their assigned viewer or creator role.
-Ready podcasts are visible through their owning library or an administrator's sharing
-grant. Drafts and management actions require creator access to the owning library.
+New users start as viewers. Membership in the configured administrator group or the
+local flag grants administrator access; other users retain their assigned viewer or
+creator role. Ready podcasts are visible through their owning library or an
+administrator's sharing grant. Drafts and management actions require creator access
+to the owning library. Podcasts are unavailable while their owning library is not enabled.
 Unauthorized requests return 404. Azure trusts Easy Auth's authenticated identity;
 local Entra sign-in validates tokens directly.
 
@@ -141,6 +147,110 @@ Django's existing `User.is_active` flag is editable through **Admin → Users**.
 New accounts default to active; identity/group synchronization never reactivates
 a disabled user. Inactive accounts are refused on each protected request,
 including requests made with an existing session.
+
+### Libraries and local access
+
+When a member signs in, each group in their token appears under **Admin → Libraries / Entra groups**,
+named after its Entra group ID and set to **Hidden**. Open the group, change the name
+and set the status to **Enabled**. Filter by status, or search by name or ID.
+
+For a group nobody has signed in with yet, use **Add library** with its Entra group ID. With
+`groupClaims: ApplicationGroup`, also assign the group to the application, or its members'
+tokens will not list it.
+
+| Library status | In the portal |
+|---|---|
+| **Hidden** | Nobody can use it in the portal: pages, media and shares return 404 for everyone, including administrators. All data is kept, and restoring is one status change. Runs already in progress still finish |
+| **Enabled** | Available to members, local grants and administrators |
+
+Names are labels: access always uses the Entra group ID. Administrators get every enabled library in the portal. Admin list sidebars
+offer the first 50 enabled libraries; each library's page links to its people and podcasts.
+
+If you roll back to a release before this one, podcasts created in new groups stay hidden
+after you upgrade. Filter by **Hidden** and sort by **Owned** to find them, then enable those
+libraries.
+
+| Enabled library | Viewer | Creator with access | Administrator |
+|---|---|---|---|
+| Has podcasts visible to that person | Published podcasts | Drafts and published podcasts | Drafts and published podcasts |
+| Empty | Hidden | Visible | Visible |
+
+Published podcasts shared into a library count as its content.
+
+**Admin → Local library access** gives one person access to one enabled library
+without changing Entra. Each record keeps who granted it, the time, an optional reason,
+an optional expiry and any revocation. Without an expiry, access lasts until it is revoked. Records can be revoked but not edited or deleted.
+A person's access is their current Entra membership
+plus active local grants, and **Admin → Users → the person** shows each source.
+Revoking a local grant cannot remove access that Entra still provides. A local grant
+never changes the viewer/creator role, and it never makes anyone an administrator, even
+when the library's group is the administrator group.
+
+### Group overage
+
+Entra leaves the group list out of a token when a person is in too many groups and sends
+an overage indicator instead. Microsoft documents 200 groups for these tokens, and about 5
+for ID tokens from the implicit part of a hybrid flow. Such a person can still sign in, and
+the application never follows URLs from the token.
+
+With `isa9000:graphGroups: true`, the application asks Microsoft Graph for that person's
+security groups, using their own sign-in and the delegated `User.Read` permission. It checks
+that the access token belongs to the signed-in person and keeps the list until their ID
+token expires, so this is two calls per sign-in. The list works like a token's list,
+including for library access and the administrator group. It is off by default. Turn it on
+in this order:
+
+1. Deploy with the setting off. With `authApp: create`, this declares the delegated Microsoft
+   Graph permissions `openid`, `profile`, `email` and `User.Read` on the sign-in registration.
+   With an existing registration, add them yourself.
+2. An Entra administrator grants admin consent for them on each environment's registration,
+   under **App registrations → API permissions**. Do this before the next step: they are
+   requested at every sign-in, so without consent Microsoft can stop every employee on its
+   own approval page.
+3. Set `isa9000:graphGroups: true` and deploy. It applies from each person's next sign-in. The
+   web app must be able to reach `graph.microsoft.com`.
+
+To undo it, set the value to `false` and deploy.
+
+If the setting is off or a lookup fails, the person sees a notice with a reference ID. A
+failed lookup is tried again after a minute. Their last known memberships are kept for
+diagnosis only and grant nothing. Find them under **Admin → Users** with the **Directory
+membership** filter and give them local library access. A token with a missing or unreadable
+group list gets the same notice and makes no Graph call. An explicit empty list is a complete
+answer: that person simply has no Entra libraries.
+
+`groupClaims` defaults to `SecurityGroup`, which sends each person's security groups, so
+they appear in the admin. `groupClaims: ApplicationGroup` sends only groups assigned to
+the application. That reduces overage, subject to Microsoft's licensing and nesting
+limits, but other groups never appear in the admin. With `graphGroups`, a person whose
+token overflows still gets all their security groups from Graph.
+
+### Administrator access and recovery
+
+A person is an administrator while their token lists the configured administrator group
+or their **Application administrator** flag is set under **Admin → Users**. Both are
+checked on every request, so a change applies on the person's next request, not at their
+next sign-in. An administrator affected by overage needs `isa9000:graphGroups` or the
+flag. Administrators can set the flag and **Active** for other people but not for
+themselves, and changes are audited. Suspended people stay blocked whatever their flag.
+
+If nobody can reach the admin, an operator with access to the web container can restore
+one identity. The command requires this deployment's tenant ID and the person's Entra
+object ID, and works before their first sign-in. Add `--activate` to also reactivate a
+suspended account. `az containerapp exec` needs an interactive terminal and cannot pass
+arguments through `--command`, so open a shell first:
+
+```bash
+az containerapp exec --resource-group YOUR-GROUP --name YOUR-WEB-APP --command sh
+```
+
+Then, inside that shell:
+
+```bash
+python manage.py app_admin grant --tenant TENANT-ID --object-id OBJECT-ID
+```
+
+Use `app_admin revoke` the same way. Activity shows these changes as **Operator command**.
 
 Application sessions use a two-hour idle timeout and an eight-hour absolute limit.
 Successful navigation/actions and CSRF-protected playback/activity heartbeats
@@ -182,10 +292,14 @@ it to the library. Without that option, a successful generation records and
 publishes automatically. Engine review failures still stop for review. Viewers
 only see ready podcasts. Saved settings follow recording and retries, and the
 shared configuration is never rewritten by a creator.
-If a stopped transcripts-first run already saved its transcripts, **Review saved
-transcripts** restores the review screen without generating or recording again.
+**Cancel processing** asks for confirmation, then stops the run and deletes any transcripts
+and recordings it created. It cannot be resumed; **Retry** starts again. Existing transcripts
+and published audio stay, and uploaded source documents stay until they expire. History shows
+**User canceled**, and the run page shows who did it.
 
-Progress shows saved steps, activity, elapsed time and Stop/Retry controls.
+Progress shows saved steps, elapsed time and Cancel/Retry controls. When a run fails, creators
+see a short message and a reference; administrators find the full error and activity log under
+**Admin → Runs**.
 While queued or running, the browser polls Django every 1.5 seconds;
 leaving and reopening the page restores the saved progress. This is JSON
 polling, not a streaming connection to the CLI. The local FastAPI generation
@@ -209,8 +323,7 @@ The watchdog fails runs with no worker after 15 minutes or no heartbeat for 5 mi
 A podcast starts `draft`. Successful creation makes it `ready` or `needs_review`;
 recording approved transcripts makes it `ready`. Editing published transcripts returns
 it to `needs_review` until approved and recorded again. A render updates its page.
-Failed or stopped runs do not change the podcast's status. A creator can also restore
-review from saved transcripts after a stopped transcripts-first run.
+Failed or canceled runs do not change the podcast's status.
 
 ## 5. Deleting an episode
 
@@ -257,6 +370,14 @@ Entra object IDs; names, emails, source content and OAuth codes are excluded.
 Telemetry uses managed identity with Monitoring Metrics Publisher access scoped
 to the Application Insights resource. Local-key ingestion is disabled, with
 100% sampling. Retention defaults to 365 days in prod and 30 days in dev/test.
+**Admin → Contact requests** lists messages from creators. Everything is read-only except the
+status, and changing it records who did so and when.
+
+**Admin → Activity** records who created, edited, shared, canceled and deleted what, and each
+podcast shows who last edited it. Administrators can read these records but not add, change or
+delete them, and a PostgreSQL trigger refuses updates and deletes. A database owner can still
+remove that trigger, so this is not a tamper-proof ledger.
+
 Application Insights is independent of database edits, but it is not an immutable
 ledger: Azure administrators control retention and purge permissions. Direct SQL
 changes bypass application auditing. Azure ingestion and access controls still
@@ -296,12 +417,11 @@ Follow [the local installation walkthrough](getting-started.md) for cloning,
 Entra registration, configuration, real audio and the first podcast.
 
 Use a separate browser profile and a real Entra employee account to check group
-isolation. For local UI checks, `make fake-user` creates a numbered viewer and
-prints a session cookie with a two-hour idle timeout and eight-hour maximum;
-`make fake-user n=3` issues a fresh session for that account.
+isolation. For local UI checks, `make fake-user ARGS="--group LIBRARY-ID"` creates a
+numbered viewer in that library and prints a session cookie with a two-hour idle timeout
+and eight-hour maximum; `make fake-user n=3` issues a fresh session for that account.
 Fake sessions cannot become administrators and deployed Easy Auth rejects them.
-Treat cookie values as credentials. `make local-user` and `make seed` are legacy
-fixtures requiring explicit dev mode.
+Treat cookie values as credentials.
 
 `make help` lists commands. `make scale n=3` starts three workers,
 `make logs s=worker` follows logs, `make test` runs ruff and pytest, and
@@ -338,9 +458,11 @@ setup, stack configuration, bootstrap, GitHub environment values and promotion.
 
 If IT supplies an existing sign-in registration, configure `isa9000:authApp`
 with its `clientId`; the workflow injects `clientSecret` from the environment
-secret `AUTH_CLIENT_SECRET`. Register
-`https://YOUR-APP-HOST/.auth/login/aad/callback`, enable ID-token issuance for
-Easy Auth and configure the selected group claims. Use a separate registration
+secret `AUTH_CLIENT_SECRET`. Register `https://YOUR-APP-HOST/.auth/login/aad/callback` as a web
+redirect URI. Enable ID-token issuance for Easy Auth and configure the selected group claims. Set
+**Assignment required** to **No** in the Enterprise application's properties, or only people
+assigned to it can sign in. For `isa9000:graphGroups`, see
+[group overage](#group-overage). Use a separate registration
 per environment. The local callback is different.
 
 For PR previews, create a protected GitHub environment named `preview` with a
@@ -351,7 +473,7 @@ Set its `AZURE_CLIENT_ID` to the preview identity, along with
 `PULUMI_STACK_CONFIG` (the dev stack file) and `AZURE_STORAGE_ACCOUNT`. Its only
 state secret is
 `PULUMI_DEV_CONFIG_PASSPHRASE`, a copy of the dev environment's passphrase.
-Preview runs only for same-repository branches, excluding Dependabot. Review the
+Preview runs only for same-repository branches. Review the
 PR's code before approving access to dev secrets; prod secrets are never supplied.
 Reader-only preview permissions still need Azure validation because some
 providers read resource keys.
@@ -422,7 +544,7 @@ or real-device background playback.
 
 The local stack supports Entra sign-in and real Foundry generation when configured.
 A completed Azure application deployment is still pending. Before promotion, validate
-Easy Auth claims, private callback routing, managed identities, secret mounts, queue
+Easy Auth claims, worker callback routing, managed identities, secret mounts, queue
 scaling, media access and tracing in dev. Run the current image scan and an approved
 real generation with your organization's model deployments.
 

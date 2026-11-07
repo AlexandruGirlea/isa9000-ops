@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from django.core.exceptions import ValidationError
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.views.decorators.http import require_POST
 
 from app_portal.forms import TitleForm
-from app_portal.permissions import course_for, group_for
+from app_portal.permissions import course_for, group_for, is_creator
 from shared.descriptions import render_description
 
 
@@ -13,8 +13,10 @@ from shared.descriptions import render_description
 def preview(request, group_id=None, course_id=None):
     if course_id is not None:
         course_for(request.user, course_id, manage=True)
-    else:
+    elif group_id is not None:
         group_for(request.user, group_id, manage=True)
+    elif not is_creator(request.user):
+        raise Http404
     try:
         size = int(request.META.get("CONTENT_LENGTH") or 0)
     except ValueError:

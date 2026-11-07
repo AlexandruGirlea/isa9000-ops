@@ -1,4 +1,4 @@
-FROM python:3.13-slim@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1 AS base
+FROM python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS base
 
 LABEL org.opencontainers.image.licenses="Apache-2.0" \
     org.opencontainers.image.source="https://github.com/AlexandruGirlea/isa9000-ops"
@@ -12,6 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DJANGO_SETTINGS_MODULE=core.settings \
     ISA9000_CONFIG=/config/isa9000.toml
 
+# The Python image can lag Debian's security fixes, and the release scan blocks on them.
+RUN apt-get update && apt-get upgrade --yes && rm -rf /var/lib/apt/lists/*
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --create-home app
 COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md /usr/share/licenses/isa9000-ops/
 COPY LICENSES/ /usr/share/licenses/isa9000-ops/LICENSES/
@@ -32,9 +34,7 @@ RUN uv sync --frozen --no-dev && \
     DATABASE_URL=sqlite:////tmp/build.sqlite3 \
     ISA9000_DJANGO_SECRET_KEY=build-only-static-collection \
     python web/manage.py collectstatic --noinput && \
-    rm web/app_portal/management/commands/fake_user.py \
-       web/app_portal/management/commands/local_user.py \
-       web/app_portal/management/commands/seed.py && \
+    rm web/app_portal/management/commands/fake_user.py && \
     chown -R app:app /app
 
 FROM build AS development

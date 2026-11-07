@@ -12,6 +12,7 @@ from pulumi_azure_native import (
     applicationinsights,
     authorization,
     managedidentity,
+    network,
     operationalinsights,
     resources,
 )
@@ -49,9 +50,10 @@ image = "ghcr.io/alexandrugirlea/isa9000-ops"
 image = f"{image}@{image_tag}" if image_tag.startswith("sha256:") else f"{image}:{image_tag}"
 admin_group = config.require_secret("adminGroupId")
 alert_email = config.require("alertEmail")
-group_claims = config.get("groupClaims") or "ApplicationGroup"
+group_claims = config.get("groupClaims") or "SecurityGroup"
 if group_claims not in {"SecurityGroup", "ApplicationGroup"}:
     raise ValueError("isa9000:groupClaims must be SecurityGroup or ApplicationGroup")
+graph_groups = config.get_bool("graphGroups") or False
 
 auth_app = config.get("authApp") or "create"
 if auth_app != "create":
@@ -150,6 +152,33 @@ insights = applicationinsights.Component(
 workspace_keys = operationalinsights.get_shared_keys_output(
     resource_group_name=group_name, workspace_name=workspace.name
 )
+vnet_configuration = None
+if environment == "prod":
+    # Zone redundancy requires a dedicated infrastructure subnet at environment creation.
+    vnet_cidr = ipaddress.ip_network(config.get("containerAppsVnetCidr") or "10.42.0.0/16")
+    subnet_cidr = ipaddress.ip_network(config.get("containerAppsSubnetCidr") or "10.42.0.0/23")
+    if (
+        vnet_cidr.version != 4
+        or subnet_cidr.version != 4
+        or subnet_cidr.prefixlen > 27
+        or not subnet_cidr.subnet_of(vnet_cidr)
+    ):
+        raise ValueError("Container Apps requires an IPv4 subnet of /27 or larger inside its VNet")
+    apps_vnet = network.VirtualNetwork(
+        "apps-vnet",
+        virtual_network_name=f"{prefix}-apps",
+        address_space={"address_prefixes": [str(vnet_cidr)]},
+        **common,
+    )
+    apps_subnet = network.Subnet(
+        "apps-subnet",
+        resource_group_name=group_name,
+        virtual_network_name=apps_vnet.name,
+        subnet_name="container-apps",
+        address_prefix=str(subnet_cidr),
+        delegations=[{"name": "container-apps", "service_name": "Microsoft.App/environments"}],
+    )
+    vnet_configuration = {"infrastructure_subnet_id": apps_subnet.id, "internal": False}
 app_environment = app.ManagedEnvironment(
     "environment",
     environment_name=f"{prefix}-apps",
@@ -161,5 +190,7 @@ app_environment = app.ManagedEnvironment(
         },
     },
     workload_profiles=[{"name": "Consumption", "workload_profile_type": "Consumption"}],
+    zone_redundant=environment == "prod",
+    vnet_configuration=vnet_configuration,
     **common,
 )

@@ -14,8 +14,8 @@ PACKAGE_DIR = Path(isa9000.__file__).parent
 DEBUG = os.environ.get("DEBUG", "false").lower() in {"1", "true"}
 SECRET_KEY = os.environ["ISA9000_DJANGO_SECRET_KEY"]
 AUTH_MODE = os.environ.get("ISA9000_AUTH", "easyauth")
-if AUTH_MODE not in {"dev", "easyauth", "entra"} or (AUTH_MODE == "dev" and not DEBUG):
-    raise ImproperlyConfigured("ISA9000_AUTH=dev requires DEBUG=true.")
+if AUTH_MODE not in {"easyauth", "entra"}:
+    raise ImproperlyConfigured("ISA9000_AUTH must be easyauth or entra.")
 ENTRA_TENANT_ID = os.environ.get("ISA9000_ENTRA_TENANT_ID", "")
 ENTRA_CLIENT_ID = os.environ.get("ISA9000_ENTRA_CLIENT_ID", "")
 ENTRA_CLIENT_SECRET = os.environ.get("ISA9000_ENTRA_CLIENT_SECRET", "")
@@ -24,6 +24,7 @@ ENTRA_REDIRECT_URI = os.environ.get(
 )
 ALLOWED_HOSTS = os.environ.get("ISA9000_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 ADMIN_GROUP_ID = os.environ.get("ISA9000_ADMIN_GROUP_ID", "")
+GRAPH_GROUPS = AUTH_MODE == "easyauth" and os.environ.get("ISA9000_GRAPH_GROUPS") == "true"
 CALLBACK_SECRET = os.environ.get("ISA9000_CALLBACK_SECRET", "")
 CALLBACK_BASE_URL = os.environ.get("ISA9000_CALLBACK_BASE_URL", "http://web:8000").rstrip("/")
 DAILY_RUNS_PER_USER = int(os.environ.get("ISA9000_DAILY_RUNS_PER_USER", "5"))

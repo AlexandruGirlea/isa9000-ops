@@ -7,13 +7,14 @@ from unittest.mock import patch
 
 import jwt
 from app_portal.models import Course, EntraGroup, Profile, Run
-from core.dev import ENGINEERING, SALES
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from shared import payloads
 
+SALES = "11111111-1111-4111-8111-111111111111"
+ENGINEERING = "22222222-2222-4222-8222-222222222222"
 ADMIN = "33333333-3333-4333-8333-333333333333"
 OID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 TENANT = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
@@ -49,8 +50,12 @@ class PortalCase(TestCase):
         ))
         keys.start()
         self.addCleanup(keys.stop)
-        self.sales = EntraGroup.objects.create(object_id=SALES, name="Sales")
-        self.engineering = EntraGroup.objects.create(object_id=ENGINEERING, name="Engineering")
+        self.sales = EntraGroup.objects.create(
+            object_id=SALES, name="Sales", status="enabled",
+        )
+        self.engineering = EntraGroup.objects.create(
+            object_id=ENGINEERING, name="Engineering", status="enabled",
+        )
         self.sales.refresh_from_db()
         self.engineering.refresh_from_db()
         self.user = get_user_model().objects.create_user(username=OID)
@@ -109,3 +114,39 @@ class PortalCase(TestCase):
             body = payloads.decrypt(response.json(), f"reply:{run_id}:{action}")
             response.json = lambda: body
         return response
+
+
+VIEWER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+ADMIN_OID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+OTHER = "99999999-9999-4999-8999-999999999999"
+OVERAGE = {"_claim_names": {"groups": "src1"}, "_claim_sources": {"src1": {
+    "endpoint": "https://attacker.example/getMemberObjects",
+}}}
+
+
+def token(oid=OID, groups=None, **claims):
+    return {"HTTP_X_MS_TOKEN_AAD_ID_TOKEN": principal(oid, groups, **claims)}
+
+
+def viewer(groups=None, **claims):
+    return token(VIEWER, [SALES] if groups is None else groups, **claims)
+
+
+def administrator(**claims):
+    return token(ADMIN_OID, [ADMIN], **claims)
+
+
+class LibraryCase(PortalCase):
+    def setUp(self):
+        super().setUp()
+        self.empty = EntraGroup.objects.create(
+            object_id=OTHER, name="Empty library", status="enabled",
+        )
+        self.empty.refresh_from_db()
+
+    def status(self, path, headers, method="get", **data):
+        return getattr(self.client, method)(path, data, **headers).status_code
+
+    def listed(self, headers, library=None):
+        pk = library or SALES
+        return f"/libraries/{pk}/" in self.client.get("/libraries/", **headers).content.decode()

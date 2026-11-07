@@ -15,7 +15,7 @@ from django.middleware.csrf import rotate_token
 from django.shortcuts import redirect
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from core import dev, sessions
+from core import sessions
 from core.views import error_page
 from shared import telemetry
 
@@ -25,6 +25,22 @@ def signing_keys(tenant):
     return jwt.PyJWKClient(
         f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys", timeout=10
     )
+
+
+def directory_groups(claims):
+    # Entra omits the list above its limit, so an overage token never means "only these groups".
+    # The token's _claim_sources URLs are deliberately never followed.
+    names = claims.get("_claim_names")
+    if claims.get("hasgroups") is True or (isinstance(names, dict) and "groups" in names):
+        return [], "overage"
+    if "groups" not in claims:
+        return [], "missing"
+    try:
+        if not isinstance(claims["groups"], list):
+            raise ValueError
+        return [str(uuid.UUID(group)) for group in claims["groups"]], "complete"
+    except (ValueError, TypeError, AttributeError):
+        return [], "failed"
 
 
 def verified_identity(token):
@@ -38,15 +54,57 @@ def verified_identity(token):
         issuer=f"https://login.microsoftonline.com/{tenant}/v2.0",
         options={"require": ["exp", "iat", "iss", "aud", "oid", "tid"]},
     )
-    if claims["tid"] != tenant or not isinstance(claims.get("groups"), list):
-        raise ValueError("Your sign-in has no library groups.")
+    if claims["tid"] != tenant:
+        raise ValueError("Invalid token.")
+    groups, membership = directory_groups(claims)
     return {
         "oid": str(uuid.UUID(claims["oid"])),
         "name": claims.get("name", ""),
         "email": claims.get("preferred_username", ""),
-        "groups": [str(uuid.UUID(group)) for group in claims["groups"]],
+        "groups": groups,
+        "membership": membership,
         "expires": claims["exp"],
     }
+
+
+GRAPH_ME = "https://graph.microsoft.com/v1.0/me"
+
+
+def graph_groups(request, person):
+    # /me answers for whoever owns the access token, which the ID token's signature does not
+    # cover, so the owner is compared before the list can grant anything.
+    now = time.time()
+    cached = request.session.get("graph_groups")
+    if cached and cached["oid"] == person["oid"] and now < cached["until"]:
+        return cached["groups"]
+    token = request.headers.get("X-MS-TOKEN-AAD-ACCESS-TOKEN")
+    if not token:
+        return None
+    call = {
+        "headers": {"Authorization": f"Bearer {token}"},
+        "timeout": (2, 3),
+        "allow_redirects": False,
+    }
+    groups, until = None, now + 60
+    try:
+        owner = requests.get(f"{GRAPH_ME}?$select=id", **call)
+        owner.raise_for_status()
+        if str(uuid.UUID(owner.json()["id"])) != person["oid"]:
+            raise ValueError("Access token belongs to someone else.")
+        answer = requests.post(
+            f"{GRAPH_ME}/getMemberObjects", json={"securityEnabledOnly": True}, **call
+        )
+        answer.raise_for_status()
+        listed, state = directory_groups({"groups": answer.json()["value"]})
+        if state != "complete":
+            raise ValueError("Unreadable group list.")
+        groups, until = listed, person["expires"]
+    except (requests.RequestException, ValueError, KeyError, TypeError, AttributeError) as error:
+        response = getattr(error, "response", None)
+        reason = type(error).__name__ if response is None else f"http_{response.status_code}"
+        telemetry.audit("auth.graph_groups", outcome="failed", actor_id=person["oid"], state=reason)
+    request.session["graph_groups"] = {"oid": person["oid"], "until": until, "groups": groups}
+    return groups
 
 
 def identity(request):
@@ -104,8 +162,6 @@ def client(cache=None):
 
 @require_http_methods(["GET", "POST"])
 def login(request):
-    if settings.AUTH_MODE == "dev":
-        return dev.login(request)
     if settings.AUTH_MODE != "entra":
         raise Http404
     try:
@@ -159,11 +215,11 @@ def callback(request):
 
 
 @require_POST
-def logout(request):
-    if settings.AUTH_MODE == "dev":
-        return dev.logout(request)
-    if settings.AUTH_MODE != "entra":
-        raise Http404
+def signout(request):
+    if settings.AUTH_MODE == "easyauth":
+        request.session.flush()
+        telemetry.audit("auth.logout", actor_id=request.audit_actor_id, target_type="entra")
+        return redirect(sessions.SIGNED_OUT)
     person = identity(request)
     request.audit_actor_id = person["oid"] if person else ""
     request.session.flush()

@@ -1,7 +1,41 @@
 (() => {
-  document.addEventListener('submit', event => {
-    const message = event.submitter?.dataset.confirm;
-    if (message && !window.confirm(message)) event.preventDefault();
+  for (const toast of document.querySelectorAll('.portal-toast')) {
+    const dismiss = () => toast.remove();
+    toast.querySelector('button').addEventListener('click', dismiss);
+    setTimeout(dismiss, 8000);
+  }
+  window.portalConfirm = (message, action) => new Promise(resolve => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'portal-confirm';
+    const text = document.createElement('p');
+    text.textContent = message;
+    const stay = document.createElement('button');
+    stay.type = 'button';
+    stay.textContent = 'Go back';
+    const proceed = document.createElement('button');
+    proceed.type = 'button';
+    proceed.className = 'portal-confirm-action';
+    proceed.textContent = action;
+    const actions = document.createElement('div');
+    actions.append(stay, proceed);
+    dialog.append(text, actions);
+    let answer = false;
+    stay.addEventListener('click', () => dialog.close());
+    proceed.addEventListener('click', () => { answer = true; dialog.close(); });
+    dialog.addEventListener('close', () => { dialog.remove(); resolve(answer); });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+  const confirmed = new WeakSet();
+  document.addEventListener('submit', async event => {
+    const submitter = event.submitter;
+    const message = submitter?.dataset.confirm;
+    if (!message || confirmed.has(event.target)) return;
+    event.preventDefault();
+    if (await window.portalConfirm(message, submitter.textContent.trim())) {
+      confirmed.add(event.target);
+      event.target.requestSubmit(submitter);
+    }
   });
   let lastInput = 0;
   let lastSent = Date.now();

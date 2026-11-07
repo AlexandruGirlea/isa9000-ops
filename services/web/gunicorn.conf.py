@@ -9,6 +9,8 @@ graceful_timeout = 30
 max_requests = 1000
 max_requests_jitter = 100
 forwarded_allow_ips = "*"
+# Easy Auth forwards the ID token in one header; its group list outgrows the 8190-byte default.
+limit_request_field_size = 32768
 accesslog = "-"
 access_log_format = "%(s)s %(M)sms"
 

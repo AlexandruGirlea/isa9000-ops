@@ -99,8 +99,8 @@
     reason.textContent = value ? 'Changes need your approval before new audio is recorded.' : (data.edit_reason || 'Read the transcript or edit its wording before approval.');
     if (value) { editor.value = data.text; editor.focus(); }
   }
-  function requestClose() {
-    if (saving || (dirty() && !confirm('Discard your unsaved transcript changes?'))) return;
+  async function requestClose() {
+    if (saving || (dirty() && !await window.portalConfirm('Discard your unsaved transcript changes?', 'Discard'))) return;
     dialog.close();
   }
   async function responseData(response) {
@@ -128,8 +128,8 @@
     if (opener?.isConnected) opener.focus({preventScroll: true});
   });
   edit.addEventListener('click', () => setEditing(true));
-  cancel.addEventListener('click', () => {
-    if (dirty() && !confirm('Discard your unsaved transcript changes?')) return;
+  cancel.addEventListener('click', async () => {
+    if (dirty() && !await window.portalConfirm('Discard your unsaved transcript changes?', 'Discard')) return;
     setEditing(false);
     edit.focus();
   });

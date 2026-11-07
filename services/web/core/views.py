@@ -21,8 +21,6 @@ def page(request, template, context=None, status=200):
             "site": site(),
             "base_path": "/static/isa9000/",
             "nav_path": "/libraries/",
-            "dev": settings.AUTH_MODE == "dev",
-            "local_auth": settings.AUTH_MODE in {"dev", "entra"},
             **(context or {}),
         },
         status=status,
@@ -72,7 +70,9 @@ def not_found(request, exception=None):
 
 
 def server_error(request):
-    return error_page(request, 500, "Something went wrong. Please try again.")
+    return error_page(
+        request, 500, "Something went wrong. Your administrators have been notified.",
+    )
 
 
 def bad_request(request, exception=None):
@@ -97,13 +97,7 @@ def signin(request):
 
         if identity(request):
             return redirect("libraries")
-    if (
-        (settings.AUTH_MODE == "easyauth" and request.COOKIES.get("AppServiceAuthSession"))
-        or (
-            settings.AUTH_MODE == "dev" and request.session.get("dev_authenticated")
-            and (request.session.get("dev_person") or request.session.get("dev_user"))
-        )
-    ):
+    if settings.AUTH_MODE == "easyauth" and request.COOKIES.get("AppServiceAuthSession"):
         response = redirect("libraries")
         response["Cache-Control"] = "private, no-store"
         return response
