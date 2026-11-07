@@ -17,20 +17,6 @@ def render(description):
     return template.render(podcast={"description": description})
 
 
-def test_short_descriptions_show_their_formatting():
-    html = render("***bold***\r\n\r\nsecond [link](https://example.com)")
-    assert "<strong>" in html
-    assert 'href="https://example.com"' in html
-    assert "<details" not in html
-
-
-def test_long_descriptions_collapse_behind_a_plain_excerpt():
-    html = render("**word** " * 60)
-    assert "<details" in html
-    assert 'class="description-excerpt"' in html
-    assert "**" not in html
-
-
 def test_relative_web_and_mail_links_render_and_other_schemes_stay_plain_text():
     for source, href in (
         ("[link](meh)", 'href="meh"'),

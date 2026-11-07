@@ -5,22 +5,18 @@ import socket
 import subprocess
 import sys
 import tempfile
-from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from app_portal.forms import CreateForm
-from app_portal.models import Course, Run
-from core.branding import site
-from core.dev import SALES
+from app_portal.models import Course
 from core.security import source_url
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.management import call_command
 from django.test import override_settings
 
-from .helpers import ADMIN, PortalCase, principal
+from .helpers import SALES, PortalCase
 
 
 class SecurityBrandingTests(PortalCase):
@@ -65,24 +61,13 @@ class SecurityBrandingTests(PortalCase):
             with self.subTest(url=url), self.assertRaises(ValidationError):
                 source_url(url)
 
-    def test_public_http_https_ipv6_and_mixed_dns(self):
-        public = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
-        with patch("core.security.socket.getaddrinfo", return_value=public):
+    def test_accepts_public_links_and_refuses_mixed_dns(self):
+        public = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+        private = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        with patch("core.security.socket.getaddrinfo", return_value=[public]):
             self.assertEqual(source_url("https://example.com/a"), "https://example.com/a")
-            self.assertEqual(source_url("http://example.com/a"), "http://example.com/a")
-        ipv6 = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:4700:4700::1111", 443))]
-        with patch("core.security.socket.getaddrinfo", return_value=ipv6):
-            self.assertEqual(
-                source_url("https://[2606:4700:4700::1111]/"), "https://[2606:4700:4700::1111]/"
-            )
         with (
-            patch(
-                "core.security.socket.getaddrinfo",
-                return_value=[
-                    *public,
-                    (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443)),
-                ],
-            ),
+            patch("core.security.socket.getaddrinfo", return_value=[public, private]),
             self.assertRaises(ValidationError),
         ):
             source_url("https://mixed.example/a")
@@ -130,7 +115,7 @@ class SecurityBrandingTests(PortalCase):
             )
             self.assertTrue(form.is_valid(), form.errors)
 
-    def test_custom_brand_logo_accent_on_signin_library_and_admin(self):
+    def test_custom_brand_logo_and_accent_reach_the_pages(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             (folder / "logo.svg").write_text(
@@ -147,70 +132,17 @@ class SecurityBrandingTests(PortalCase):
                         response = self.client.get(path, **self.headers)
                         for text in ("Acme Learning", "/static/isa9000/logo.svg", "#123456"):
                             self.assertContains(response, text)
-                        self.assertNotContains(response, "Powered by girlea.ro")
-                        self.assertContains(response, "isa9000_theme")
-                        self.assertContains(response, "theme-toggle")
                 response = self.client.get("/static/isa9000/logo.svg")
                 self.assertIn(b"Acme", b"".join(response.streaming_content))
-                response = self.client.get("/static/isa9000/manifest.webmanifest")
-                self.assertEqual(response.json()["theme_color"], "#123456")
-                response = self.client.get(
-                    "/admin/", HTTP_X_MS_TOKEN_AAD_ID_TOKEN=principal(groups=[SALES, ADMIN])
-                )
-                self.assertContains(response, "Acme Learning")
-                self.assertContains(response, "/static/admin/css/base.css")
-                self.assertNotContains(response, "/static/unfold/")
 
-    def test_no_logo_uses_package_logo_and_marks(self):
-        with tempfile.TemporaryDirectory() as directory:
-            config = Path(directory) / "isa9000.toml"
-            config.write_text('[branding]\nbrand = "Plain"\n')
-            with patch.dict(os.environ, {"ISA9000_CONFIG": str(config)}):
-                branding = site()
-                self.assertEqual(branding["logo"], "logo.png")
-                self.assertEqual(
-                    set(branding["marks"].values()),
-                    {
-                        "logo-mark-light.png",
-                        "logo-mark-dark.png",
-                    },
-                )
-
-    def test_dev_auth_refuses_production_startup(self):
+    def test_unknown_sign_in_mode_refuses_to_start(self):
         result = subprocess.run(
             [sys.executable, "-c", "import core.settings"],
             check=False,
             cwd=settings.BASE_DIR,
             capture_output=True,
             text=True,
-            env={**os.environ, "DEBUG": "false", "ISA9000_AUTH": "dev"},
+            env={**os.environ, "ISA9000_AUTH": "dev"},
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("requires DEBUG=true", result.stderr)
-
-    @override_settings(AUTH_MODE="dev", DEBUG=True)
-    def test_seed_runs_stub_uploads_fixture_and_queues_render(self):
-        seen = []
-
-        def upload(folder, prefix):
-            seen.extend(path.name for path in folder.iterdir())
-
-        with (
-            patch("app_portal.management.commands.seed.storage.upload_folder", side_effect=upload),
-            patch("app_portal.runs.dispatch") as dispatch,
-            patch("app_portal.management.commands.seed.telemetry.setup"),
-        ):
-            with self.captureOnCommitCallbacks(execute=True):
-                call_command("seed", stdout=StringIO())
-        self.assertIn("podcast.json", seen)
-        self.assertIn("01 - Getting started.mp3", seen)
-        self.assertIn("01 - Getting started.txt", seen)
-        run = Run.objects.exclude(pk=self.run.pk).get()
-        self.assertEqual(run.task, "render")
-        dispatch.assert_called_once()
-
-    def test_seed_refuses_hosted_mode(self):
-        from django.core.management.base import CommandError
-
-        with self.assertRaises(CommandError):
-            call_command("seed")
+        self.assertIn("must be easyauth or entra", result.stderr)

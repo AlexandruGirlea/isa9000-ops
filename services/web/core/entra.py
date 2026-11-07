@@ -15,7 +15,7 @@ from django.middleware.csrf import rotate_token
 from django.shortcuts import redirect
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from core import dev, sessions
+from core import sessions
 from core.views import error_page
 from shared import telemetry
 
@@ -162,8 +162,6 @@ def client(cache=None):
 
 @require_http_methods(["GET", "POST"])
 def login(request):
-    if settings.AUTH_MODE == "dev":
-        return dev.login(request)
     if settings.AUTH_MODE != "entra":
         raise Http404
     try:
@@ -217,11 +215,11 @@ def callback(request):
 
 
 @require_POST
-def logout(request):
-    if settings.AUTH_MODE == "dev":
-        return dev.logout(request)
-    if settings.AUTH_MODE != "entra":
-        raise Http404
+def signout(request):
+    if settings.AUTH_MODE == "easyauth":
+        request.session.flush()
+        telemetry.audit("auth.logout", actor_id=request.audit_actor_id, target_type="entra")
+        return redirect(sessions.SIGNED_OUT)
     person = identity(request)
     request.audit_actor_id = person["oid"] if person else ""
     request.session.flush()
@@ -231,12 +229,3 @@ def logout(request):
         target_type="local_test" if person and person.get("local_test") else "entra",
     )
     return redirect("signin")
-
-
-@require_POST
-def signout(request):
-    if settings.AUTH_MODE != "easyauth":
-        return logout(request)
-    request.session.flush()
-    telemetry.audit("auth.logout", actor_id=request.audit_actor_id, target_type="entra")
-    return redirect(sessions.SIGNED_OUT)

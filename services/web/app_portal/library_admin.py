@@ -8,7 +8,7 @@ from django.contrib import admin, messages
 from django.contrib.admin.models import ADDITION
 from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
@@ -42,70 +42,6 @@ class AuditedAdmin(admin.ModelAdmin):
         )
 
 
-ID_AS_NAME = r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
-UNNAMED = Q(name="") | Q(name__regex=ID_AS_NAME)
-
-
-def content_checks():
-    owned = Course.objects.filter(group=OuterRef("pk"))
-    shared = Course.objects.filter(shared_groups=OuterRef("pk"), status="ready")
-    return Exists(owned), Exists(owned.filter(status="ready")), Exists(shared)
-
-
-class LibraryViewFilter(admin.SimpleListFilter):
-    title = "status"
-    parameter_name = "status"
-
-    def lookups(self, request, model_admin):
-        return (
-            ("enabled", "Enabled"),
-            ("discovered", "Hidden"),
-            ("review", "Unnamed, no content"),
-        )
-
-    def queryset(self, request, queryset):
-        if self.value() == "review":
-            owned, _, shared = content_checks()
-            return queryset.filter(UNNAMED, ~owned, ~shared)
-        return queryset.filter(status=self.value()) if self.value() else queryset
-
-
-class LibraryNameFilter(admin.SimpleListFilter):
-    title = "display name"
-    parameter_name = "named"
-
-    def lookups(self, request, model_admin):
-        return (("custom", "Custom name"), ("missing", "Missing name"))
-
-    def queryset(self, request, queryset):
-        if self.value() == "custom":
-            return queryset.exclude(UNNAMED)
-        return queryset.filter(UNNAMED) if self.value() == "missing" else queryset
-
-
-class LibraryContentFilter(admin.SimpleListFilter):
-    title = "content"
-    parameter_name = "content"
-
-    def lookups(self, request, model_admin):
-        return (
-            ("none", "No content"),
-            ("owned", "Owned podcasts"),
-            ("shared", "Published shared podcasts"),
-            ("drafts", "Drafts only"),
-        )
-
-    def queryset(self, request, queryset):
-        owned, published, shared = content_checks()
-        rule = {
-            "none": (~owned, ~shared),
-            "owned": (owned,),
-            "shared": (shared,),
-            "drafts": (owned, ~published, ~shared),
-        }.get(self.value())
-        return queryset.filter(*rule) if rule else queryset
-
-
 class LibraryFilter(admin.SimpleListFilter):
     title = "library"
     parameter_name = "library"
@@ -128,13 +64,10 @@ class LibraryFilter(admin.SimpleListFilter):
 @admin.register(EntraGroup)
 class EntraGroupAdmin(AuditedAdmin):
     list_display = (
-        "__str__", "status", "show_when_empty", "owned_total", "shared_total", "people_total",
-        "object_id",
+        "__str__", "status", "owned_total", "shared_total", "people_total", "object_id",
     )
-    ordering = ("-status", "name")
-    list_filter = (
-        LibraryViewFilter, LibraryNameFilter, LibraryContentFilter, "show_when_empty",
-    )
+    ordering = ("status", "name")
+    list_filter = ("status",)
     list_per_page = 50
     show_full_result_count = False
     search_fields = ("name", "object_id")
@@ -174,7 +107,7 @@ class EntraGroupAdmin(AuditedAdmin):
         return {"status": "enabled", **initial}
 
     def get_fields(self, request, obj=None):
-        fields = ("object_id", "name", "status", "show_when_empty")
+        fields = ("object_id", "name", "status")
         return (*fields, *self.detail_links) if obj else fields
 
     def get_readonly_fields(self, request, obj=None):

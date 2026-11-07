@@ -34,9 +34,7 @@ RUN uv sync --frozen --no-dev && \
     DATABASE_URL=sqlite:////tmp/build.sqlite3 \
     ISA9000_DJANGO_SECRET_KEY=build-only-static-collection \
     python web/manage.py collectstatic --noinput && \
-    rm web/app_portal/management/commands/fake_user.py \
-       web/app_portal/management/commands/local_user.py \
-       web/app_portal/management/commands/seed.py && \
+    rm web/app_portal/management/commands/fake_user.py && \
     chown -R app:app /app
 
 FROM build AS development

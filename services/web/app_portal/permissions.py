@@ -47,16 +47,13 @@ def visible_libraries(user):
     libraries = groups_for(user).annotate(
         podcast_total=count_of(owned, "group") + count_of(shared, "shared_groups"), **newest,
     )
-    visible = Q(podcast_total__gt=0)
-    if creator:
-        visible |= Q(show_when_empty=True)
-    return libraries.filter(visible)
+    return libraries if creator else libraries.filter(podcast_total__gt=0)
 
 
 def addable_libraries(user):
     if not is_creator(user):
         return EntraGroup.objects.none()
-    return groups_for(user).exclude(name="")
+    return groups_for(user)
 
 
 def group_for(user, group_id, manage=False):

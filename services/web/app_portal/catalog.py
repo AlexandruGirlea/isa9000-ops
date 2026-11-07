@@ -122,7 +122,6 @@ def library(request, group_id):
             "pages": pages,
             "query": query,
             "creator": creator,
-            "can_add": addable_libraries(request.user).filter(pk=group.pk).exists(),
         },
     )
 

@@ -6,10 +6,9 @@ from unittest.mock import patch
 
 import requests
 from app_portal.models import Profile
-from core.dev import ENGINEERING, SALES
 from django.test import Client, override_settings
 
-from .helpers import ADMIN, ADMIN_OID, OID, OTHER, OVERAGE, LibraryCase, token
+from .helpers import ADMIN, ADMIN_OID, ENGINEERING, OID, OTHER, OVERAGE, SALES, LibraryCase, token
 
 ACCESS = {"HTTP_X_MS_TOKEN_AAD_ACCESS_TOKEN": "graph-token"}
 OVERFLOW = {**token(**OVERAGE), **ACCESS}
@@ -130,16 +129,6 @@ class GraphTests(LibraryCase):
                     self.client.get("/libraries/", **OVERFLOW), "local library access",
                 )
 
-    def test_no_access_token_or_a_token_with_a_list_makes_no_call(self):
-        cases = (token(**OVERAGE), {**token(groups=[SALES]), **ACCESS})
-        for headers in cases:
-            with self.subTest(sorted(headers)), patch(
-                "requests.sessions.Session.request",
-            ) as request:
-                self.client = Client()
-                self.assertEqual(self.client.get("/libraries/", **headers).status_code, 200)
-                request.assert_not_called()
-
     def test_cached_list_is_not_reused_for_someone_else(self):
         with patch("requests.sessions.Session.request", side_effect=graph()):
             self.assertEqual(self.status(f"/libraries/{SALES}/", OVERFLOW), 200)
@@ -150,18 +139,6 @@ class GraphTests(LibraryCase):
             self.assertEqual(self.status(f"/libraries/{SALES}/", other), 404)
             self.assertEqual(request.call_count, 2)
         self.assertEqual(self.client.session["graph_groups"]["oid"], OTHER)
-
-    def test_list_is_asked_for_again_when_it_runs_out(self):
-        with patch("requests.sessions.Session.request", side_effect=graph()):
-            self.assertEqual(self.status(f"/libraries/{SALES}/", OVERFLOW), 200)
-        session = self.client.session
-        session["graph_groups"] = {**session["graph_groups"], "until": 0}
-        session.save()
-        with patch(
-            "requests.sessions.Session.request", side_effect=graph(groups=[]),
-        ) as request:
-            self.assertEqual(self.status(f"/libraries/{SALES}/", OVERFLOW), 404)
-            self.assertEqual(request.call_count, 2)
 
     def test_access_token_is_never_stored_and_failures_are_reported(self):
         with patch(

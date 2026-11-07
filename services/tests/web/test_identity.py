@@ -2,24 +2,29 @@ from __future__ import annotations
 
 import base64
 import json
-import os
-from datetime import timedelta
+import re
 from io import StringIO
 from unittest.mock import patch
 
-from app_portal.models import Course, EntraGroup, LocalTestUser, Profile, Run
-from core.dev import ENGINEERING, SALES
-from django.contrib.admin.models import LogEntry
+from app_portal.models import EntraGroup, LocalTestUser, Profile
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.backends.db import SessionStore
 from django.contrib.sessions.models import Session
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import Client, override_settings
-from django.utils import timezone
-from opentelemetry import trace
 
-from .helpers import ADMIN, OID, PortalCase, principal
+from .helpers import (
+    ADMIN,
+    ENGINEERING,
+    OID,
+    SALES,
+    LibraryCase,
+    PortalCase,
+    administrator,
+    principal,
+    token,
+)
 
 
 class IdentityTests(PortalCase):
@@ -32,32 +37,8 @@ class IdentityTests(PortalCase):
         user = get_user_model().objects.get(username=oid)
         self.assertEqual(user.profile.role, "viewer")
         self.assertTrue(user.is_superuser)
-        self.assertEqual(user.profile.groups.count(), 2)
         unknown = EntraGroup.objects.get(pk=ADMIN)
-        self.assertEqual((unknown.name, unknown.status), (ADMIN, "discovered"))
-        with (
-            override_settings(
-                AUTH_MODE="entra", LOCAL_TEST_USERS=True, ALLOWED_HOSTS=["localhost"],
-            ),
-            patch("core.entra.verified_identity", return_value={
-                "oid": OID, "name": "Real person", "email": "", "groups": [SALES],
-            }) as verified,
-            patch("core.local_users.identity") as fake,
-        ):
-            session = SessionStore()
-            session.update({"entra_id_token": "test-real-token", "local_test_user": 1})
-            session.create()
-            client = Client(HTTP_HOST="localhost")
-            client.cookies["sessionid"] = session.session_key
-            response = client.get("/libraries/")
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.wsgi_request.user.pk, self.user.pk)
-            verified.assert_called_once_with("test-real-token")
-            fake.assert_not_called()
-            verified.side_effect = ValueError("Invalid token")
-            self.assertRedirects(client.get("/libraries/"), "/")
-            self.assertFalse(Session.objects.filter(session_key=session.session_key).exists())
-            fake.assert_not_called()
+        self.assertEqual((unknown.name, unknown.status), (ADMIN, "hidden"))
 
     def test_group_sync_removes_stale_membership_and_superuser(self):
         self.client.get(
@@ -68,7 +49,6 @@ class IdentityTests(PortalCase):
         self.assertFalse(self.user.is_superuser)
         self.assertFalse(self.user.is_staff)
         self.assertEqual(list(self.user.profile.groups.all()), [self.engineering])
-        self.assertEqual(self.user.profile.role, "creator")
 
     def test_excluded_paths_ignore_forged_headers(self):
         oid = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
@@ -95,11 +75,6 @@ class IdentityTests(PortalCase):
                 self.assertEqual(response.status_code, 403)
                 self.assertContains(response, "Reference:", status_code=403)
 
-    def test_missing_group_claim_gives_actionable_message(self):
-        response = self.client.get("/libraries/", HTTP_X_MS_TOKEN_AAD_ID_TOKEN=principal())
-        self.assertContains(response, "local library access")
-        self.assertContains(response, OID)
-
     def test_anonymous_and_stale_session_redirect_to_signin(self):
         self.client.force_login(self.user)
         response = self.client.get("/libraries/")
@@ -111,236 +86,9 @@ class IdentityTests(PortalCase):
         response = self.client.get("/", **self.headers)
         self.assertEqual(response.url, "/libraries/")
 
-    @override_settings(AUTH_MODE="dev", DEBUG=True)
-    def test_dev_signin_and_logout(self):
-        for configured_user in ("", json.dumps({"oid": OID, "name": "Demo", "email": ""})):
-            with (
-                self.subTest(configured_identity=bool(configured_user)),
-                patch.dict(os.environ, {
-                    "ISA9000_DEV_USER": configured_user,
-                    "ISA9000_DEV_GROUPS": f"{SALES},{ADMIN}",
-                }),
-            ):
-                client = Client()
-                self.assertRedirects(client.get("/libraries/"), "/")
-                self.assertRedirects(client.get("/.auth/login/aad"), "/")
-                response = client.post("/.auth/login/aad")
-                self.assertRedirects(response, "/libraries/")
-                self.assertContains(client.get(f"/libraries/{SALES}/"), "New podcast")
-                old_session = client.cookies["sessionid"].value
-                self.assertRedirects(client.post("/.auth/logout"), "/")
-                client.cookies["sessionid"] = old_session
-                for path in (
-                    "/libraries/", f"/libraries/{SALES}/", f"/libraries/{SALES}/new/",
-                    f"/courses/{self.course.id}/", f"/courses/{self.course.id}/manage/",
-                    f"/media/{self.course.id}/01 - First.mp3", "/runs/",
-                    f"/runs/{self.run.id}/", "/admin/",
-                ):
-                    response = client.get(path, follow=True)
-                    self.assertEqual(response.redirect_chain, [("/", 302)])
-                    self.assertContains(response, "Enter local demo")
-                    self.assertFalse(response.wsgi_request.user.is_authenticated)
-
-        with (
-            override_settings(
-                AUTH_MODE="entra", LOCAL_TEST_USERS=True,
-                ALLOWED_HOSTS=["localhost", "127.0.0.1", "web"],
-            ),
-            patch.dict(os.environ, {"ISA9000_FAKE_USER_NUMBER": ""}),
-            patch("app_portal.runs.dispatch") as dispatch,
-            patch("app_portal.views.storage.save_upload") as upload,
-        ):
-            output = StringIO()
-            call_command("fake_user", stdout=output)
-            entry = LocalTestUser.objects.get()
-            user = entry.user
-            self.assertIn(f"Fake user #{entry.number}", output.getvalue())
-            self.assertIn("Viewer", output.getvalue())
-            self.assertFalse(user.has_usable_password())
-            self.assertFalse(user.is_staff or user.is_superuser)
-            self.assertEqual(user.profile.role, "viewer")
-            self.assertEqual(list(user.profile.groups.all()), [self.sales])
-            session = Session.objects.get(session_key=entry.session_key)
-            self.assertEqual(session.get_decoded()["local_test_user"], entry.number)
-            self.assertLessEqual(session.expire_date, timezone.now() + timedelta(hours=8))
-            self.assertGreater(session.expire_date, timezone.now() + timedelta(hours=7))
-            audit = LogEntry.objects.filter(object_id=str(entry.number)).latest("id")
-            self.assertIn("auth.local_test_session_issued", audit.change_message)
-            self.assertNotIn(entry.session_key, audit.change_message)
-            self.assertNotIn(user.email, audit.change_message)
-            client = Client(HTTP_HOST="localhost")
-            client.cookies["sessionid"] = entry.session_key
-            self.assertEqual(client.get(f"/libraries/{SALES}/").status_code, 200)
-            self.assertEqual(client.get(f"/courses/{self.course.id}/").status_code, 200)
-            self.assertEqual(client.get("/libraries/", HTTP_HOST="127.0.0.1").status_code, 200)
-            response = client.get(
-                "/libraries/", HTTP_X_MS_TOKEN_AAD_ID_TOKEN=principal(groups=[ADMIN]),
-            )
-            self.assertEqual(response.wsgi_request.user.pk, user.pk)
-            self.assertFalse(response.wsgi_request.user.is_superuser)
-            for path in (
-                f"/libraries/{ENGINEERING}/", f"/libraries/{SALES}/new/",
-                f"/courses/{self.course.id}/manage/", "/runs/", "/admin/",
-            ):
-                with self.subTest(viewer_path=path):
-                    self.assertEqual(client.get(path).status_code, 404)
-            self.assertEqual(client.post(
-                f"/libraries/{SALES}/new/", {"title": "Test", "request": "Test request"},
-            ).status_code, 404)
-            self.assertEqual(client.post(
-                f"/courses/{self.course.id}/manage/", {"action": "record"},
-            ).status_code, 404)
-            dispatch.assert_not_called()
-            upload.assert_not_called()
-            self.assertEqual(Course.objects.count(), 1)
-            self.assertEqual(Run.objects.count(), 1)
-
-            call_command("fake_user", stdout=StringIO())
-            self.assertEqual(LocalTestUser.objects.count(), 2)
-            user.profile.role = "creator"
-            user.profile.save(update_fields=["role"])
-            user.profile.groups.set([self.engineering])
-            old_key = entry.session_key
-            call_command("fake_user", number=entry.number, stdout=StringIO())
-            entry.refresh_from_db()
-            self.assertNotEqual(old_key, entry.session_key)
-            self.assertEqual(LocalTestUser.objects.count(), 2)
-            self.assertRedirects(client.get("/libraries/"), "/")
-            client.cookies["sessionid"] = entry.session_key
-            self.assertEqual(client.get(f"/libraries/{ENGINEERING}/new/").status_code, 200)
-            self.assertEqual(client.get(f"/libraries/{SALES}/").status_code, 404)
-            user.profile.refresh_from_db()
-            self.assertEqual(user.profile.role, "creator")
-            self.assertEqual(list(user.profile.groups.all()), [self.engineering])
-
-            counts = (
-                get_user_model().objects.count(), LocalTestUser.objects.count(),
-                Session.objects.count(),
-            )
-            missing = StringIO()
-            call_command("fake_user", number=999999, stdout=missing)
-            self.assertEqual(missing.getvalue(), "No user found\n")
-            self.assertEqual(counts, (
-                get_user_model().objects.count(), LocalTestUser.objects.count(),
-                Session.objects.count(),
-            ))
-            with patch.dict(os.environ, {"ISA9000_FAKE_USER_NUMBER": str(entry.number)}):
-                call_command("fake_user", stdout=StringIO())
-            entry.refresh_from_db()
-            self.assertEqual(LocalTestUser.objects.count(), 2)
-            client.cookies["sessionid"] = entry.session_key
-            Session.objects.filter(session_key=entry.session_key).update(
-                expire_date=timezone.now() - timedelta(seconds=1),
-            )
-            self.assertRedirects(client.get("/libraries/"), "/")
-            call_command("fake_user", number=entry.number, stdout=StringIO())
-            entry.refresh_from_db()
-            old_key = entry.session_key
-            client.cookies["sessionid"] = old_key
-            self.assertRedirects(client.post("/.auth/logout"), "/")
-            self.assertFalse(Session.objects.filter(session_key=old_key).exists())
-            client.cookies["sessionid"] = old_key
-            self.assertRedirects(client.get("/libraries/"), "/")
-
-            call_command("fake_user", number=entry.number, stdout=StringIO())
-            entry.refresh_from_db()
-            for field, denied in (("is_active", False), ("is_staff", True), ("is_superuser", True)):
-                with self.subTest(disallowed_user_field=field):
-                    original = getattr(user, field)
-                    setattr(user, field, denied)
-                    user.save(update_fields=[field])
-                    client.cookies["sessionid"] = entry.session_key
-                    self.assertRedirects(client.get("/libraries/"), "/")
-                    with self.assertRaises(CommandError):
-                        call_command("fake_user", number=entry.number, stdout=StringIO())
-                    setattr(user, field, original)
-                    user.save(update_fields=[field])
-            admin, _ = EntraGroup.objects.get_or_create(
-                object_id=ADMIN, defaults={"name": "Administrators"},
-            )
-            user.profile.groups.add(admin)
-            client.cookies["sessionid"] = entry.session_key
-            self.assertRedirects(client.get("/libraries/"), "/")
-            with self.assertRaises(CommandError):
-                call_command("fake_user", number=entry.number, stdout=StringIO())
-            with self.assertRaises(CommandError):
-                call_command("fake_user", group=admin.pk, stdout=StringIO())
-            user.profile.groups.remove(admin)
-            forged = SessionStore()
-            forged["local_test_user"] = entry.number
-            forged.create()
-            client.cookies["sessionid"] = forged.session_key
-            self.assertRedirects(client.get("/libraries/"), "/")
-            dispatch.assert_not_called()
-
-    def test_dev_endpoints_are_absent_in_easyauth(self):
-        self.assertEqual(self.client.get("/.auth/login/aad").status_code, 404)
-        self.assertEqual(self.client.post("/.auth/logout").status_code, 404)
-        with (
-            override_settings(
-                AUTH_MODE="entra", LOCAL_TEST_USERS=True, ALLOWED_HOSTS=["localhost", "web"],
-            ),
-            patch.dict(os.environ, {"ISA9000_FAKE_USER_NUMBER": ""}),
-        ):
-            call_command("fake_user", stdout=StringIO())
-            entry = LocalTestUser.objects.get()
-            client = Client(HTTP_HOST="localhost")
-            for options in (
-                {"LOCAL_TEST_USERS": False},
-                {"AUTH_MODE": "easyauth"},
-                {"ALLOWED_HOSTS": ["localhost", "example.invalid"]},
-            ):
-                with self.subTest(disabled=options), override_settings(**options):
-                    with self.assertRaises(CommandError):
-                        call_command("fake_user", stdout=StringIO())
-                    client.cookies["sessionid"] = entry.session_key
-                    response = client.get("/libraries/")
-                    self.assertEqual(response.status_code, 302)
-                    self.assertFalse(response.wsgi_request.user.is_authenticated)
-            for host in ("web", "example.invalid"):
-                with self.subTest(host=host):
-                    client.cookies["sessionid"] = entry.session_key
-                    response = client.get("/libraries/", HTTP_HOST=host)
-                    self.assertIn(response.status_code, (302, 400))
-                    if response.status_code == 302:
-                        self.assertFalse(response.wsgi_request.user.is_authenticated)
-            with override_settings(ALLOWED_HOSTS=["localhost", "example.invalid"]):
-                client.cookies["sessionid"] = entry.session_key
-                response = client.get("/libraries/", HTTP_HOST="example.invalid")
-                self.assertEqual(response.status_code, 302)
-                self.assertFalse(response.wsgi_request.user.is_authenticated)
-            self.assertEqual(LocalTestUser.objects.count(), 1)
-            for value in (0, -1):
-                with self.subTest(invalid_number=value), self.assertRaises(CommandError):
-                    call_command("fake_user", number=value, stdout=StringIO())
-            with patch.dict(os.environ, {"ISA9000_FAKE_USER_NUMBER": "invalid"}):
-                with self.assertRaises(CommandError):
-                    call_command("fake_user", stdout=StringIO())
-
-    @override_settings(AUTH_MODE="dev", DEBUG=True)
-    def test_dev_signin_post_requires_csrf(self):
-        client = Client(enforce_csrf_checks=True)
-        self.assertEqual(client.post("/.auth/login/aad", {"person": "admin"}).status_code, 403)
-        with (
-            override_settings(
-                AUTH_MODE="entra", LOCAL_TEST_USERS=True, ALLOWED_HOSTS=["localhost"],
-            ),
-            patch.dict(os.environ, {"ISA9000_FAKE_USER_NUMBER": ""}),
-        ):
-            call_command("fake_user", stdout=StringIO())
-            entry = LocalTestUser.objects.get()
-            client.cookies["sessionid"] = entry.session_key
-            response = client.post("/.auth/logout", HTTP_HOST="localhost")
-            self.assertEqual(response.status_code, 403)
-            self.assertTrue(Session.objects.filter(session_key=entry.session_key).exists())
-
-    def test_existing_http_trace_is_kept(self):
-        context = trace.SpanContext(
-            trace_id=int("a" * 32, 16), span_id=12, is_remote=False, trace_flags=trace.TraceFlags(1)
-        )
-        with trace.use_span(trace.NonRecordingSpan(context)):
-            response = self.client.get("/healthz")
-        self.assertEqual(response["X-Correlation-Id"], "a" * 32)
+    def test_local_sign_in_routes_are_absent_on_azure(self):
+        for path in ("/.auth/login/aad", "/auth/login/aad/callback"):
+            self.assertEqual(self.client.get(path).status_code, 404)
 
     def test_signin_does_not_log_personal_information(self):
         with patch("core.middleware.telemetry.log") as log:
@@ -352,3 +100,160 @@ class IdentityTests(PortalCase):
             event["action"] == "http.request" and event["actor_id"] == OID for event in events
         ))
         self.assertEqual(Profile.objects.get(user__username=OID).role, "creator")
+
+
+class SignOutTests(LibraryCase):
+    def test_signing_out_ends_only_the_portal_session(self):
+        page = self.client.get("/libraries/", **self.headers)
+        self.assertContains(page, '<form method="post" action="/signout/">')
+        self.assertNotContains(page, "/.auth/logout")
+        for path, headers in (("/signout/", self.headers), ("/admin/logout/", administrator())):
+            with self.subTest(path):
+                self.client.get("/libraries/", **headers)
+                self.assertIn("session_oid", self.client.session)
+                self.assertEqual(self.client.get(path, **headers).status_code, 405)
+                self.assertEqual(self.client.post(path, **headers).url, "/signed-out/")
+                self.assertNotIn("session_oid", self.client.session)
+        self.assertEqual(self.client.post("/admin/logout/", **self.headers).status_code, 404)
+
+    def test_sign_out_form_passes_csrf(self):
+        client = Client(enforce_csrf_checks=True)
+        page = client.get("/libraries/", **self.headers).content.decode()
+        form = re.search(r'action="/signout/">.*?value="([^"]+)"', page, re.S)
+        self.assertEqual(client.post("/signout/", **self.headers).status_code, 403)
+        response = client.post("/signout/", {"csrfmiddlewaretoken": form[1]}, **self.headers)
+        self.assertEqual(response.url, "/signed-out/")
+
+    def test_signed_out_page_clears_azure_without_following_it_to_microsoft(self):
+        page = Client().get("/signed-out/")
+        self.assertContains(page, 'fetch("/.auth/logout", {redirect: "manual"})')
+        self.assertContains(page, 'location.replace("/")')
+        self.assertNotContains(page, "/static/session.js")
+        policy = page["Content-Security-Policy"]
+        nonce = re.search(r'nonce="([^"]+)"', page.content.decode())[1]
+        self.assertIn(f"'nonce-{nonce}'", policy)
+        self.assertIn("connect-src 'self'", policy)
+        self.assertEqual(Client().post("/signed-out/").status_code, 405)
+
+    def test_an_ended_session_never_reaches_microsoft(self):
+        self.client.get("/libraries/", **self.headers)
+        self.assertEqual(self.client.get("/libraries/", **token(exp=1)).url, "/signed-out/")
+        for method, path in (("get", "/libraries/"), ("post", "/session/activity/")):
+            with self.subTest(path):
+                self.client.get("/libraries/", **self.headers)
+                session = self.client.session
+                session["last_activity"] = 0
+                session.save()
+                response = getattr(self.client, method)(path, **self.headers)
+                if method == "post":
+                    self.assertEqual(response.status_code, 401)
+                    self.assertEqual(response.json(), {"signin": "/signed-out/"})
+                else:
+                    self.assertEqual(response.url, "/signed-out/")
+
+
+@override_settings(AUTH_MODE="entra", LOCAL_TEST_USERS=True, ALLOWED_HOSTS=["localhost", "web"])
+class LocalSignInTests(PortalCase):
+    def setUp(self):
+        super().setUp()
+        self.local = Client(HTTP_HOST="localhost")
+
+    def fake_user(self):
+        call_command("fake_user", group=SALES, stdout=StringIO())
+        entry = LocalTestUser.objects.latest("number")
+        self.local.cookies["sessionid"] = entry.session_key
+        return entry
+
+    def real_session(self, **values):
+        session = SessionStore()
+        session.update({"entra_id_token": "test-real-token", **values})
+        session.create()
+        self.local.cookies["sessionid"] = session.session_key
+
+    def test_a_real_sign_in_outranks_a_fake_session_and_ends_when_invalid(self):
+        self.real_session(local_test_user=1)
+        with (
+            patch("core.entra.verified_identity", return_value={
+                "oid": OID, "name": "Real person", "email": "", "groups": [SALES],
+            }) as verified,
+            patch("core.local_users.identity") as fake,
+        ):
+            response = self.local.get("/libraries/")
+            self.assertEqual(response.wsgi_request.user.pk, self.user.pk)
+            verified.assert_called_once_with("test-real-token")
+            verified.side_effect = ValueError("Invalid token")
+            self.assertRedirects(self.local.get("/libraries/"), "/")
+            fake.assert_not_called()
+
+    def test_signing_out_ends_the_session_on_the_landing_page(self):
+        person = {"oid": OID, "name": "Real person", "email": "", "groups": [ADMIN]}
+        with patch("core.entra.verified_identity", return_value=person):
+            for path in ("/signout/", "/admin/logout/"):
+                with self.subTest(path):
+                    self.real_session()
+                    self.assertEqual(self.local.get("/libraries/").status_code, 200)
+                    key = self.local.cookies["sessionid"].value
+                    self.assertEqual(self.local.post(path).url, "/")
+                    self.assertFalse(Session.objects.filter(session_key=key).exists())
+        self.assertEqual(self.local.get("/signed-out/").status_code, 404)
+
+    def test_fake_user_is_a_limited_viewer_even_with_a_forged_token(self):
+        user = self.fake_user().user
+        self.assertEqual(user.profile.role, "viewer")
+        self.assertFalse(user.has_usable_password() or user.is_staff or user.is_superuser)
+        self.assertEqual(self.local.get(f"/libraries/{SALES}/").status_code, 200)
+        response = self.local.get(
+            "/libraries/", HTTP_X_MS_TOKEN_AAD_ID_TOKEN=principal(groups=[ADMIN]),
+        )
+        self.assertEqual(response.wsgi_request.user.pk, user.pk)
+        self.assertFalse(response.wsgi_request.user.is_superuser)
+        for path in (
+            f"/libraries/{ENGINEERING}/", f"/libraries/{SALES}/new/",
+            f"/courses/{self.course.id}/manage/", "/runs/", "/admin/",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.local.get(path).status_code, 404)
+        with patch("app_portal.runs.dispatch") as dispatch:
+            self.assertEqual(self.local.post(
+                f"/libraries/{SALES}/new/", {"title": "Test", "request": "Test"},
+            ).status_code, 404)
+        dispatch.assert_not_called()
+
+    def test_fake_sessions_refuse_privileged_accounts_and_forged_cookies(self):
+        entry = self.fake_user()
+        user = entry.user
+        for field, denied in (("is_active", False), ("is_staff", True), ("is_superuser", True)):
+            with self.subTest(field=field):
+                original = getattr(user, field)
+                setattr(user, field, denied)
+                user.save(update_fields=[field])
+                self.local.cookies["sessionid"] = entry.session_key
+                self.assertRedirects(self.local.get("/libraries/"), "/")
+                with self.assertRaises(CommandError):
+                    call_command("fake_user", number=entry.number, stdout=StringIO())
+                setattr(user, field, original)
+                user.save(update_fields=[field])
+        admin = EntraGroup.objects.create(object_id=ADMIN, name="Admins", status="enabled")
+        for options in ({"group": admin.pk}, {}):
+            with self.subTest(options=options), self.assertRaises(CommandError):
+                call_command("fake_user", stdout=StringIO(), **options)
+        forged = SessionStore()
+        forged["local_test_user"] = entry.number
+        forged.create()
+        self.local.cookies["sessionid"] = forged.session_key
+        self.assertRedirects(self.local.get("/libraries/"), "/")
+
+    def test_fake_sessions_stop_outside_the_local_stack(self):
+        entry = self.fake_user()
+        for options in (
+            {"LOCAL_TEST_USERS": False},
+            {"AUTH_MODE": "easyauth"},
+            {"ALLOWED_HOSTS": ["localhost", "example.invalid"]},
+        ):
+            with self.subTest(disabled=options), override_settings(**options):
+                with self.assertRaises(CommandError):
+                    call_command("fake_user", group=SALES, stdout=StringIO())
+                self.local.cookies["sessionid"] = entry.session_key
+                response = self.local.get("/libraries/")
+                self.assertEqual(response.status_code, 302)
+                self.assertFalse(response.wsgi_request.user.is_authenticated)

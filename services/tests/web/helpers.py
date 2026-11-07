@@ -7,13 +7,14 @@ from unittest.mock import patch
 
 import jwt
 from app_portal.models import Course, EntraGroup, Profile, Run
-from core.dev import ENGINEERING, SALES
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from shared import payloads
 
+SALES = "11111111-1111-4111-8111-111111111111"
+ENGINEERING = "22222222-2222-4222-8222-222222222222"
 ADMIN = "33333333-3333-4333-8333-333333333333"
 OID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 TENANT = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"

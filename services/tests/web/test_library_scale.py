@@ -15,7 +15,7 @@ class ScaleTests(LibraryCase):
         self.groups = [
             EntraGroup(
                 object_id=uuid.uuid4(), name=f"Library {index:03}",
-                status="enabled" if index % 3 else "discovered",
+                status="enabled" if index % 3 else "hidden",
             )
             for index in range(300)
         ]
@@ -61,12 +61,6 @@ class ScaleTests(LibraryCase):
         _, response = self.count("/libraries/", token(groups=[]), q="Library")
         self.assertNotContains(response, "Library 001")
 
-    def test_portal_never_lists_discovered_group_ids(self):
-        discovered = self.groups[0]
-        for path in ("/libraries/", "/libraries/new/"):
-            _, response = self.count(path, administrator())
-            self.assertNotContains(response, str(discovered.pk))
-
     def test_admin_lists_stay_bounded_and_default_to_configured_libraries(self):
         headers = administrator()
         for path, limit in (
@@ -88,28 +82,3 @@ class ScaleTests(LibraryCase):
         self.assertContains(response, "Library 001")
         _, response = self.count(f"/admin/app_portal/course/{self.course.pk}/change/", headers)
         self.assertNotContains(response, "Library 299")
-
-    def test_every_admin_filter_narrows_the_catalogue(self):
-        unnamed = EntraGroup.objects.create(object_id=uuid.uuid4())
-        draft_only = EntraGroup.objects.create(object_id=uuid.uuid4(), name="Draft only")
-        Course.objects.create(group=draft_only, created_by=self.user, title="Draft")
-        shared = EntraGroup.objects.create(object_id=uuid.uuid4(), name="Shared only")
-        self.course.shared_groups.add(shared)
-        headers = administrator()
-        path = "/admin/app_portal/entragroup/"
-        for params, present, absent in (
-            ({"status": "discovered"}, "Library 000", "Library 001"),
-            ({"status": "review"}, str(unnamed.pk), "Library 000"),
-            ({"named": "missing"}, str(unnamed.pk), "Library 000"),
-            ({"named": "custom", "q": "Library 00"}, "Library 000", str(unnamed.pk)),
-            ({"content": "drafts"}, "Draft only", "Library 000"),
-            ({"content": "shared"}, "Shared only", "Library 000"),
-            ({"content": "owned", "q": "Library 00"}, "Library 000", "Shared only"),
-            ({"content": "none"}, str(unnamed.pk), "Library 000"),
-            ({"q": str(unnamed.pk)}, str(unnamed.pk), "Library 000"),
-            ({"q": "Library 000"}, "Library 000", "Library 001"),
-        ):
-            with self.subTest(params=params):
-                _, response = self.count(path, headers, **params)
-                self.assertContains(response, present)
-                self.assertNotContains(response, absent)

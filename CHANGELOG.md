@@ -13,8 +13,8 @@
 - Sign-ins list each group under **Admin → Libraries / Entra groups**, hidden and named after its Entra ID.
   Administrators open a group to rename and enable it.
 - Administrators control whether a group is a library: hidden or enabled. Hiding one revokes
-  portal access and keeps all data. Empty libraries stay hidden unless
-  **Show when empty** is on. **New library** is now **Add podcast**.
+  portal access and keeps all data. Viewers see a library once it has a published podcast;
+  creators and administrators see it straight away. **New library** is now **Add podcast**.
 - People whose token has no usable group list (Entra group overage, missing or malformed
   claims) can sign in instead of getting a 403 error. Stale memberships never grant access.
 - New optional `isa9000:graphGroups`: when a token has too many groups to list them, the
@@ -51,6 +51,8 @@
   assign a role on a Foundry account outside its resource group.
 - The image now installs Debian's latest security updates when it is built, including the zlib
   fix for CVE-2026-85091.
+- Removed the legacy dev sign-in mode (`ISA9000_AUTH=dev`) with `make seed` and `make local-user`.
+  `make fake-user` now needs a library: `make fake-user ARGS="--group LIBRARY-ID"`.
 
 ## 0.1.0
 

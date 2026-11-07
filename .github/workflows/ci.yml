@@ -41,8 +41,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       vars.ENABLE_AZURE_PREVIEW == 'true' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.actor != 'dependabot[bot]'
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 20

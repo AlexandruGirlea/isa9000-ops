@@ -5,19 +5,15 @@ import json
 import shlex
 import signal
 import sys
-from importlib.metadata import version
 from unittest.mock import MagicMock
 
 import pytest
 import requests
-from azure.core.exceptions import ResourceNotFoundError
-from isa9000.config import load_config
 from markupsafe import escape
 
 from shared import payloads
 from worker import __main__ as entrypoint
 from worker import callbacks, runner
-from worker.render import render_course
 
 
 class Recorder:
@@ -96,7 +92,6 @@ def local_worker(monkeypatch, branding_config, stub_cli):
 @pytest.mark.parametrize("code,state,title", [
     (0, "ready", 'Sales <tools> & "teams"; $(not-a-shell)'),
     (0, "ready", None),
-    (0, "ready", ""),
     (1, "failed", "Sales onboarding"),
     (3, "needs_review", "Sales onboarding"),
 ])
@@ -187,37 +182,13 @@ def test_record_after_review_and_render(monkeypatch, task, local_worker):
     assert "This local demonstration uses silent audio" in recorder.result["html"]
 
 
-def test_render_quotes_original_names_and_runtime_logo(monkeypatch, task, local_worker, tmp_path):
-    assert version("isa9000") == "0.3.0"
-    monkeypatch.setenv("ISA9000_STUB_EXIT", "0")
-    recorder = Recorder()
-    runner.run_task(task, recorder)
-    folder = tmp_path / "kb" / "course"
-    runner.storage.download_prefix(f"courses/{task['course_id']}", folder)
-    manifest = recorder.result["manifest"]
-    episode = manifest["episodes"][0]
-    audio = "01 - Test #100%.mp3"
-    (folder / episode["audio"]).rename(folder / audio)
-    episode["audio"] = audio
-    (folder / manifest["cover"]).rename(folder / "cover #100%.png")
-    manifest["cover"] = "cover #100%.png"
-    (folder / "podcast.json").write_text(json.dumps(manifest))
-    config_root = tmp_path / "config"
-    config_root.mkdir()
-    (config_root / "logo.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" id="brand"/>')
-    config_path = config_root / "isa9000.toml"
-    config_path.write_text(
-        '[branding]\nbrand = "Trial Brand"\nlogo = "logo.svg"\naccent_color = "#123456"\n'
-    )
-    html = render_course(
-        folder, tmp_path / "site", manifest, task["links"], load_config(config_path)
-    )
-    assert task["links"]["media"] + "01%20-%20Test%20%23100%25.mp3" in html
-    assert task["links"]["media"] + "cover%20%23100%25.png" in html
-    assert "/static/isa9000/logo.svg" in html
-    assert (tmp_path / "site" / "logo.svg").read_bytes() == (config_root / "logo.svg").read_bytes()
-    assert "Trial Brand" in html and "#123456" in html
-    assert "/libraries/sales/index.html" in html
+def test_downloads_exact_original_upload_names(monkeypatch, task, local_worker):
+    monkeypatch.setenv("ISA9000_STUB_EXIT", "3")
+    name = "uploads/original-run/pricing.pdf"
+    local_worker[0][name] = b"demo source"
+    task["sources"].append(name)
+    assert runner.run_task(task, Recorder()) == 0
+    assert local_worker[2] == [name]
 
 
 def test_cancel_keeps_no_recordings_and_reports_no_manifest(monkeypatch, task, local_worker):
@@ -243,23 +214,6 @@ def test_heartbeat_stops_silent_process(monkeypatch, task, local_worker):
     assert kill.call_args.args[1] == signal.SIGTERM
 
 
-@pytest.mark.parametrize("code", [2, 130, -signal.SIGTERM])
-def test_other_exit_codes_are_engine_failure(code, monkeypatch, task, local_worker):
-    monkeypatch.setattr(runner.Run, "cli", lambda *_: code)
-    recorder = Recorder()
-    assert runner.run_task(task, recorder) == 1
-    assert recorder.result["state"] == "failed"
-    assert recorder.result["error_source"] == "isa9000"
-
-
-def test_stderr_fallback(monkeypatch, task, local_worker):
-    code = "import sys; print('isa9000: fallback error', file=sys.stderr); sys.exit(1)"
-    monkeypatch.setenv("ISA9000_CLI", shlex.join([sys.executable, "-c", code]))
-    recorder = Recorder()
-    runner.run_task(task, recorder)
-    assert recorder.result["error"] == "fallback error"
-
-
 @pytest.mark.parametrize("invalid", [
     {"sources": ["/etc/passwd"]},
     {"sources": ["file:///tmp/secret"]},
@@ -280,24 +234,6 @@ def test_refuses_noncontract_sources(invalid, task, local_worker, monkeypatch):
     assert runner.run_task(task, recorder) == 1
     assert recorder.result["error_source"] == "worker"
     start.assert_not_called()
-
-
-def test_downloads_exact_original_upload_names(monkeypatch, task, local_worker):
-    monkeypatch.setenv("ISA9000_STUB_EXIT", "3")
-    name = "uploads/original-run/pricing.pdf"
-    local_worker[0][name] = b"demo source"
-    task["sources"].append(name)
-    assert runner.run_task(task, Recorder()) == 0
-    assert local_worker[2] == [name]
-
-
-def test_expired_upload_failure(monkeypatch, task, local_worker):
-    monkeypatch.setattr(
-        runner.storage, "download_blobs", MagicMock(side_effect=ResourceNotFoundError)
-    )
-    recorder = Recorder()
-    assert runner.run_task(task, recorder) == 1
-    assert "expire after 7 days" in recorder.result["error"]
 
 
 @pytest.mark.parametrize("operation", ["upload_folder", "render_course"])
@@ -328,17 +264,6 @@ def test_callback_retries_and_headers(monkeypatch, task):
         "Authorization": "Bearer test-secret", "X-Correlation-Id": task["correlation_id"],
         "traceparent": "test-parent",
     }
-
-
-@pytest.mark.parametrize("status,attempts", [(401, 1), (404, 1), (409, 1), (500, 6)])
-def test_callback_retry_limit(status, attempts, monkeypatch, task):
-    monkeypatch.setenv("ISA9000_CALLBACK_SECRET", "test-secret")
-    post = MagicMock(return_value=MagicMock(status_code=status))
-    monkeypatch.setattr(callbacks.requests, "post", post)
-    monkeypatch.setattr(callbacks.time, "sleep", lambda _: None)
-    with pytest.raises(callbacks.CallbackError):
-        callbacks.Callbacks(task).post("result", {})
-    assert post.call_count == attempts
 
 
 @pytest.mark.parametrize("accepted", [True, False, None])

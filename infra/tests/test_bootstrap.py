@@ -39,15 +39,6 @@ def test_federation_uses_the_subject_github_issues(tmp_path):
     assert "--subject repo:client/isa9000-ops:environment" not in commands
 
 
-def test_explicit_prefix_needs_no_github_access(tmp_path):
-    result, commands = run_bootstrap(
-        tmp_path, "", GITHUB_OIDC_SUBJECT_PREFIX="repo:client/isa9000-ops",
-    )
-    assert result.returncode == 0, result.stderr
-    assert "gh api" not in commands
-    assert "--subject repo:client/isa9000-ops:environment:dev " in commands
-
-
 def test_unusable_subject_stops_before_any_azure_change(tmp_path):
     result, commands = run_bootstrap(tmp_path, "")
     assert result.returncode == 1

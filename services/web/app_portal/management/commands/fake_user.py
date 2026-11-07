@@ -4,7 +4,6 @@ import os
 import uuid
 
 from core.audit import record
-from core.dev import SALES
 from core.local_users import enabled
 from core.sessions import start
 from django.conf import settings
@@ -21,7 +20,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--number", default=None, type=int)
-        parser.add_argument("--group", default=SALES, type=uuid.UUID)
+        parser.add_argument("--group", type=uuid.UUID)
 
     def handle(self, *args, **options):
         if not enabled():
@@ -45,7 +44,7 @@ class Command(BaseCommand):
             else:
                 group = EntraGroup.objects.filter(pk=options["group"], status="enabled").first()
                 if group is None or str(group.pk) == settings.ADMIN_GROUP_ID:
-                    raise CommandError("Choose an enabled library that is not the admin group.")
+                    raise CommandError("Use --group with an enabled library, not the admin group.")
                 user = get_user_model().objects.create_user(username=str(uuid.uuid4()))
                 profile = Profile.objects.create(user=user, role="viewer")
                 profile.groups.add(group)

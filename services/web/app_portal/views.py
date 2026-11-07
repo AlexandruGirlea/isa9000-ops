@@ -31,7 +31,6 @@ from app_portal.permissions import (
     group_for,
     groups_for,
     is_creator,
-    visible_libraries,
 )
 from app_portal.runs import new_run
 from shared import storage
@@ -141,7 +140,6 @@ def create(request, group_id):
         "create.html",
         {
             "group": group,
-            "library_listed": visible_libraries(request.user).filter(pk=group.pk).exists(),
             "form": form,
             "max_files": settings.MAX_FILES,
             "max_upload_mb": settings.MAX_UPLOAD_MB,
@@ -327,9 +325,7 @@ def manage(request, course_id):
                         course_id=str(course.id), group_id=str(course.group_id),
                     )
                     course.delete()
-                    if visible_libraries(request.user).filter(pk=group_id).exists():
-                        return redirect("library", group_id=group_id)
-                    return redirect("libraries")
+                    return redirect("library", group_id=group_id)
                 raise ValueError("Choose a podcast action.")
         except ValueError as error:
             return error_page(request, 409, str(error))

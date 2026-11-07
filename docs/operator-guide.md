@@ -88,12 +88,11 @@ used. Third-party notices are included beside the vendored assets. Vditor and
 the Markdown parser are maintained open-source projects without formal LTS release
 lines; Django stays on the 5.2 LTS line.
 
-**Libraries** always opens the library list. It shows a card only when an
-enabled library has podcasts visible to that user: membership in five libraries
-with podcasts in two gives two cards. Viewers see ready podcasts; creators also
-see drafts in their accessible libraries. Creators and administrators also see
-empty libraries with **Show when empty** turned on. **Add podcast** lets creators
-choose any named, enabled library they can access, including a hidden empty one.
+**Libraries** always opens the library list. A viewer sees a card only when an
+enabled library has a ready podcast: membership in five libraries with podcasts in
+two gives two cards. Creators and administrators see every enabled library they can
+access, including empty ones and drafts. **Add podcast** lets creators choose any
+enabled library they can access.
 Library and podcast pages show 24 cards per page, with server-side search.
 
 The portal navbar shows **Libraries**, **History** for creators, and **Admin**
@@ -153,9 +152,7 @@ including requests made with an existing session.
 
 When a member signs in, each group in their token appears under **Admin → Libraries / Entra groups**,
 named after its Entra group ID and set to **Hidden**. Open the group, change the name
-and set the status to **Enabled**. Turn on **Show when empty** to list it before its first
-podcast. Filter by status, display name, content and **Show when empty**, or
-search by name or ID.
+and set the status to **Enabled**. Filter by status, or search by name or ID.
 
 For a group nobody has signed in with yet, use **Add library** with its Entra group ID. With
 `groupClaims: ApplicationGroup`, also assign the group to the application, or its members'
@@ -170,17 +167,15 @@ Names are labels: access always uses the Entra group ID. Administrators get ever
 offer the first 50 enabled libraries; each library's page links to its people and podcasts.
 
 If you roll back to a release before this one, podcasts created in new groups stay hidden
-after you upgrade. Find them with the **Hidden** status and **Owned podcasts** content
-filters, then enable those libraries.
+after you upgrade. Filter by **Hidden** and sort by **Owned** to find them, then enable those
+libraries.
 
 | Enabled library | Viewer | Creator with access | Administrator |
 |---|---|---|---|
 | Has podcasts visible to that person | Published podcasts | Drafts and published podcasts | Drafts and published podcasts |
-| Empty, **Show when empty** off | Hidden | Hidden, but offered in **Add podcast** | Hidden, but offered in **Add podcast** |
-| Empty, **Show when empty** on | Hidden | Visible | Visible |
+| Empty | Hidden | Visible | Visible |
 
-Published podcasts shared into a library count as its content. **Show when empty**
-grants no membership or creator rights.
+Published podcasts shared into a library count as its content.
 
 **Admin → Local library access** gives one person access to one enabled library
 without changing Entra. Each record keeps who granted it, the time, an optional reason,
@@ -422,12 +417,11 @@ Follow [the local installation walkthrough](getting-started.md) for cloning,
 Entra registration, configuration, real audio and the first podcast.
 
 Use a separate browser profile and a real Entra employee account to check group
-isolation. For local UI checks, `make fake-user` creates a numbered viewer and
-prints a session cookie with a two-hour idle timeout and eight-hour maximum;
-`make fake-user n=3` issues a fresh session for that account.
+isolation. For local UI checks, `make fake-user ARGS="--group LIBRARY-ID"` creates a
+numbered viewer in that library and prints a session cookie with a two-hour idle timeout
+and eight-hour maximum; `make fake-user n=3` issues a fresh session for that account.
 Fake sessions cannot become administrators and deployed Easy Auth rejects them.
-Treat cookie values as credentials. `make local-user` and `make seed` are legacy
-fixtures requiring explicit dev mode.
+Treat cookie values as credentials.
 
 `make help` lists commands. `make scale n=3` starts three workers,
 `make logs s=worker` follows logs, `make test` runs ruff and pytest, and
@@ -479,7 +473,7 @@ Set its `AZURE_CLIENT_ID` to the preview identity, along with
 `PULUMI_STACK_CONFIG` (the dev stack file) and `AZURE_STORAGE_ACCOUNT`. Its only
 state secret is
 `PULUMI_DEV_CONFIG_PASSPHRASE`, a copy of the dev environment's passphrase.
-Preview runs only for same-repository branches, excluding Dependabot. Review the
+Preview runs only for same-repository branches. Review the
 PR's code before approving access to dev secrets; prod secrets are never supplied.
 Reader-only preview permissions still need Azure validation because some
 providers read resource keys.

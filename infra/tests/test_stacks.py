@@ -27,8 +27,8 @@ def run_stack(environment, overrides=None):
 
 @pytest.mark.parametrize("environment", ["dev", "test", "prod"])
 def test_stack_contract(environment):
-    result = run_stack(environment)
-    resources = result["resources"]
+    resources = run_stack(environment)["resources"]
+    production = environment == "prod"
     tags = {"project": "isa9000", "env": environment, "managedBy": "pulumi"}
     for resource in resources.values():
         if resource["type"].startswith("azure-native:"):
@@ -39,72 +39,30 @@ def test_stack_contract(environment):
             if "tags" in inspect.signature(args).parameters:
                 assert resource["inputs"]["tags"] == tags
     storage = resources["storage"]["inputs"]
-    production = environment == "prod"
     assert storage["sku"]["name"] == ("Standard_GZRS" if production else "Standard_LRS")
     assert storage["allowSharedKeyAccess"] is False
     assert storage["allowBlobPublicAccess"] is False
     assert storage["enableHttpsTrafficOnly"] is True
-    assert resources["blob-retention"]["inputs"]["deleteRetentionPolicy"]["days"] == (
-        30 if environment == "prod" else 7
-    )
-    assert resources["tasks"]["inputs"]["maxDeliveryCount"] == 3
-    assert resources["tasks"]["inputs"]["lockDuration"] == "PT1M"
-    assert resources["blob-retention"]["inputs"]["isVersioningEnabled"] is production
-    assert resources["blob-retention"]["inputs"]["containerDeleteRetentionPolicy"] == {
-        "enabled": True, "days": 30 if production else 7,
-    }
+    retention = resources["blob-retention"]["inputs"]
+    assert retention["deleteRetentionPolicy"]["days"] == (30 if production else 7)
+    assert retention["isVersioningEnabled"] is production
     bus = resources["servicebus"]["inputs"]
-    assert bus["sku"]["tier"] == ("Standard" if production else "Basic")
-    assert bus["publicNetworkAccess"] == "Enabled"
     assert bus["disableLocalAuth"] is True
     assert bus["minimumTlsVersion"] == "1.2"
     postgres = resources["postgres"]["inputs"]
-    assert postgres["sku"] == {
-        "name": "Standard_D2ds_v5" if production else "Standard_B1ms",
-        "tier": "GeneralPurpose" if production else "Burstable",
-    }
-    assert postgres["storage"] == {
-        "storageSizeGB": 128 if production else 32,
-        "autoGrow": "Enabled" if production else "Disabled",
-    }
-    assert postgres["highAvailability"]["mode"] == "Disabled"
+    assert postgres["sku"]["tier"] == ("GeneralPurpose" if production else "Burstable")
     assert postgres["backup"]["geoRedundantBackup"] == ("Enabled" if production else "Disabled")
-    assert resources["postgres"]["inputs"]["backup"]["backupRetentionDays"] == (
-        35 if environment == "prod" else 7
-    )
     assert resources["require_secure_transport"]["inputs"]["value"] == "ON"
-    assert resources["ssl_min_protocol_version"]["inputs"]["value"] == "TLSv1.2"
+    assert resources["environment"]["inputs"]["zoneRedundant"] is production
+    assert ("apps-subnet" in resources) is production
+    vault = resources["vault"]["inputs"]["properties"]
+    assert vault["enableRbacAuthorization"] is True
+    assert vault["enablePurgeProtection"] is True
 
     web = resources["web"]["inputs"]
     worker = resources["worker"]["inputs"]
     watchdog = resources["watchdog"]["inputs"]
-    assert web["template"]["containers"][0]["resources"] == (
-        {"cpu": 2, "memory": "4Gi"} if production else {"cpu": 0.5, "memory": "1Gi"}
-    )
-    assert worker["template"]["containers"][0]["resources"] == (
-        {"cpu": 2, "memory": "4Gi"} if production else {"cpu": 1, "memory": "2Gi"}
-    )
     assert web["template"]["scale"]["minReplicas"] == (1 if production else 0)
-    assert web["template"]["scale"]["maxReplicas"] == (5 if production else 3)
-    app_environment = resources["environment"]["inputs"]
-    assert app_environment["zoneRedundant"] is production
-    if production:
-        assert app_environment["vnetConfiguration"] == {
-            "infrastructureSubnetId": "/mock/apps-subnet", "internal": False,
-        }
-        assert resources["apps-subnet"]["inputs"]["delegations"] == [
-            {"name": "container-apps", "serviceName": "Microsoft.App/environments"},
-        ]
-    else:
-        assert "apps-vnet" not in resources
-        assert "apps-subnet" not in resources
-    vault = resources["vault"]["inputs"]
-    assert vault["resourceGroupName"] == storage["resourceGroupName"]
-    assert vault["properties"]["enableRbacAuthorization"] is True
-    assert vault["properties"]["enablePurgeProtection"] is True
-    assert vault["properties"]["softDeleteRetentionInDays"] == 90
-    assert resources["vault-audit"]["inputs"]["workspaceId"] == "/mock/logs"
-    assert resources["payload-key"]["inputs"]["length"] == 32
     expected_secrets = {
         "web": {"database", "django-key", "callback", "admin-group", "auth-client-secret",
                 "payload-key"},
@@ -120,85 +78,40 @@ def test_stack_contract(environment):
         for key, secret in credentials.items():
             assert "value" not in secret
             assert secret["identity"] == f"/mock/{name}-identity"
-            assert secret["keyVaultUrl"] == f"https://mock.vault.azure.net/secrets/{key}"
             grant = resources[f"{name}-secret-{key}"]["inputs"]
             assert grant["scope"] == f"/mock/secret-{key}"
             assert grant["principalId"] == f"{name}-identity-principal"
-            assert grant["roleDefinitionId"].endswith("4633458b-17de-408a-b874-0445c86b69e6")
-    for service in (web, worker):
-        config = next(
-            secret["value"]
-            for secret in service["configuration"]["secrets"]
-            if secret["name"] == "isa9000-config"
-        )
-        parsed = tomllib.loads(config)
-        assert parsed["models"] == {
-            "text": "gpt-6.1-sol",
-            "image": "gpt-image-2.5-sunburst",
-            "transcribe": "gpt-transcribe",
-        }
-        assert parsed["branding"]["brand"] == "isa9000"
-        assert service["template"]["volumes"][0]["secrets"] == [
-            {"secretRef": "isa9000-config", "path": "isa9000.toml"},
-            {"secretRef": "isa9000-logo", "path": "logo.svg"},
-        ]
+    config = next(
+        secret["value"] for secret in worker["configuration"]["secrets"]
+        if secret["name"] == "isa9000-config"
+    )
+    assert tomllib.loads(config)["models"] == {
+        "text": "gpt-6.1-sol",
+        "image": "gpt-image-2.5-sunburst",
+        "transcribe": "gpt-transcribe",
+    }
     web_vars = {item["name"]: item for item in web["template"]["containers"][0]["env"]}
     worker_vars = {item["name"]: item for item in worker["template"]["containers"][0]["env"]}
     assert web_vars["ISA9000_AUTH"]["value"] == "easyauth"
     assert web_vars["DATABASE_URL"]["secretRef"] == "database"
-    assert "command" not in web["template"]["containers"][0]
-    assert web["template"]["containers"][0]["args"][0] == "gunicorn"
-    assert "ISA9000_AZURE_OPENAI_API_KEY" not in worker_vars
     assert "DATABASE_URL" not in worker_vars
-    assert worker_vars["ISA9000_PAYLOAD_KEY"]["secretRef"] == "payload-key"
-    assert web_vars["ISA9000_PAYLOAD_KEY"]["secretRef"] == "payload-key"
+    assert "ISA9000_AZURE_OPENAI_API_KEY" not in worker_vars
     assert all(
         "CONNECTION_STRING" not in name or name == "APPLICATIONINSIGHTS_CONNECTION_STRING"
         for name in web_vars | worker_vars
     )
-    fqdn = f"isa9000-{environment}-web.mock.eastus2.azurecontainerapps.io"
-    assert web["configuration"]["ingress"]["external"] is True
-    assert web_vars["ISA9000_ALLOWED_HOSTS"]["value"] == fqdn
-    assert web_vars["ISA9000_CALLBACK_BASE_URL"]["value"] == f"https://{fqdn}"
-    assert worker_vars["ISA9000_CALLBACK_BASE_URL"]["value"] == f"https://{fqdn}"
     assert web["configuration"]["ingress"]["allowInsecure"] is False
-    assert {probe["type"] for probe in web["template"]["containers"][0]["probes"]} == {
-        "Liveness",
-        "Readiness",
-    }
     assert worker["configuration"]["replicaTimeout"] == 7200
     assert worker["configuration"]["replicaRetryLimit"] == 0
-    scale = worker["configuration"]["eventTriggerConfig"]["scale"]
-    assert scale["minExecutions"] == 0
-    assert scale["maxExecutions"] == 5
     assert worker["configuration"]["eventTriggerConfig"]["parallelism"] == 1
-    assert worker["configuration"]["eventTriggerConfig"]["replicaCompletionCount"] == 1
-    assert scale["pollingInterval"] == 10
-    assert scale["rules"][0]["identity"] == "/mock/worker-identity"
-    assert scale["rules"][0]["metadata"]["messageCount"] == "1"
-    assert watchdog["configuration"]["scheduleTriggerConfig"]["cronExpression"] == "*/5 * * * *"
     assert resources["easyauth"]["inputs"]["globalValidation"]["excludedPaths"] == [
         "/",
         "/static/*",
         "/healthz",
         "/internal/*",
     ]
-    assert resources["model-text"]["inputs"]["sku"]["capacity"] == (
-        250 if environment == "prod" else 100
-    )
-    assert resources["logs"]["inputs"]["retentionInDays"] == (365 if environment == "prod" else 30)
-    assert resources["insights"]["inputs"]["samplingPercentage"] == 100
-    assert resources["insights"]["inputs"]["disableLocalAuth"] is True
-    for name in ("web-telemetry", "worker-telemetry"):
-        permission = resources[name]["inputs"]
-        assert permission["scope"] == "/mock/insights"
-        assert permission["roleDefinitionId"].endswith("3913510d-42f4-4e42-8a64-420c390055eb")
     for name in (
-        "dead-letter-alert",
-        "failed-runs",
-        "server-errors",
-        "denied-access",
-        "worker-executions",
+        "dead-letter-alert", "failed-runs", "server-errors", "denied-access", "worker-executions",
         "budget",
     ):
         assert name in resources

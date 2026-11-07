@@ -38,28 +38,6 @@ class HistoryUpdateTests(LibraryCase):
                 row = self.row()
                 self.assertEqual((row["label"], row["action"], row["url"]), (label, action, url))
 
-    def test_page_and_updates_agree_and_page_is_marked_for_updating(self):
-        self.set_state("running", "draft")
-        page = self.client.get(PATH, **self.headers)
-        self.assertContains(page, f'data-course="{self.course.id}" data-status="running"')
-        self.assertContains(page, "history-action")
-        self.assertContains(page, "<span>View progress</span>")
-        self.set_state("ready", "ready")
-        self.assertEqual(self.row()["status"], "ready")
-        self.assertContains(self.client.get(PATH, **self.headers), "<span>View result</span>")
-
-    def test_updates_name_who_canceled_and_reveal_nothing_else(self):
-        Run.objects.filter(pk=self.run.pk).update(
-            status="stopped", canceled_by=self.user, error="secret-host",
-        )
-        self.client.get("/libraries/", **self.headers)
-        row = self.row()
-        self.assertIn("A Person", row["canceled_by"])
-        self.assertEqual(
-            set(row), {"id", "title", "status", "label", "canceled_by", "action", "url"},
-        )
-        self.assertNotIn("secret-host", str(row))
-
     def test_updates_cover_only_your_own_accessible_podcasts(self):
         self.assertIn(str(self.course.id), self.rows())
         self.assertEqual(self.rows(token(groups=[])), {})

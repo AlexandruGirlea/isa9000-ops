@@ -3,12 +3,10 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from app_portal.models import Course, Profile, Run
+from app_portal.models import Course, Run
 from app_portal.runs import dispatch, new_run
 from azure.core.exceptions import ResourceNotFoundError
-from core.dev import SALES
 from django.contrib.admin.models import LogEntry
-from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
 from django.test import override_settings
@@ -16,7 +14,7 @@ from opentelemetry import trace
 
 from shared import payloads
 
-from .helpers import PortalCase
+from .helpers import SALES, PortalCase
 
 
 class ActionTests(PortalCase):
@@ -30,29 +28,19 @@ class ActionTests(PortalCase):
             patch("app_portal.runs.dispatch") as send,
             patch("app_portal.views.storage.save_upload") as upload,
         ):
-            for values in (
-                {"title": "x" * 81},
-                {"title": "Onboarding", "description": "x" * 10001},
-            ):
-                with self.subTest(invalid_fields=list(values)):
-                    response = self.client.post(
-                        f"/libraries/{SALES}/new/", {"request": "Teach onboarding", **values},
-                        **self.headers,
-                    )
-                    self.assertEqual(response.status_code, 200)
-                    self.assertContains(response, "errorlist")
-                    upload.assert_not_called()
-                    send.assert_not_called()
-                    self.assertEqual(Course.objects.count(), 1)
+            response = self.client.post(
+                f"/libraries/{SALES}/new/", {"request": "Teach onboarding", "title": "x" * 81},
+                **self.headers,
+            )
+            self.assertContains(response, "errorlist")
+            upload.assert_not_called()
+            send.assert_not_called()
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
                     f"/libraries/{SALES}/new/",
                     {
-                        "request": "Teach onboarding",
-                        "title": "  Onboarding essentials  ",
-                        "description": "Employee onboarding",
-                        "uploads": file,
-                        "follow_links": "on",
+                        "request": "Teach onboarding", "title": "  Onboarding essentials  ",
+                        "uploads": file, "follow_links": "on",
                     },
                     **self.headers,
                 )
@@ -62,11 +50,9 @@ class ActionTests(PortalCase):
         self.assertTrue(run.follow_links)
         self.assertEqual(run.correlation_id, "b" * 32)
         self.assertEqual(run.sources, [f"uploads/{run.id}/1-handbook.md"])
+        self.assertEqual(run.course.title, "Onboarding essentials")
         upload.assert_called_once()
         send.assert_called_once()
-        self.assertEqual(run.course.status, "draft")
-        self.assertEqual(run.course.title, "Onboarding essentials")
-        self.assertEqual(run.course.description, "Employee onboarding")
 
     @override_settings(DAILY_RUNS_PER_USER=1)
     def test_daily_limit_rolls_back_new_course(self):
@@ -129,202 +115,88 @@ class ActionTests(PortalCase):
         self.run.refresh_from_db()
         self.assertEqual(self.run.status, "failed")
 
-    def test_retry_uses_record_with_saved_manifest(self):
-        self.run.status = "failed"
+    def in_review(self):
+        self.run.status = self.course.status = "needs_review"
         self.run.save()
-        self.client.post(f"/runs/{self.run.id}/", {"action": "retry"}, **self.headers)
-        self.assertEqual(Run.objects.exclude(pk=self.run.pk).get().task, "record")
+        self.course.save()
 
-    def test_retry_recovers_early_upload_after_worker_death(self):
-        self.run.status = "failed"
-        self.run.save()
-        self.course.manifest = {}
-        self.course.save()
-        with patch("app_portal.views.storage.read_json", return_value=self.manifest):
-            self.client.post(f"/runs/{self.run.id}/", {"action": "retry"}, **self.headers)
-        self.course.refresh_from_db()
-        self.assertEqual(self.course.manifest, self.manifest)
-        self.assertEqual(Run.objects.exclude(pk=self.run.pk).get().task, "record")
-        Run.objects.exclude(pk=self.run.pk).update(status="failed")
-        self.course.status = "draft"
-        self.course.manifest["review"] = {"approved": False, "score": 7.5}
-        self.course.save()
-        response = self.client.post(
-            f"/runs/{self.run.id}/", {"action": "retry"}, **self.headers
+    def post_transcript(self, **body):
+        return self.client.post(
+            f"/courses/{self.course.id}/episodes/1/transcript/", json.dumps(body),
+            content_type="application/json", **self.headers,
         )
-        self.assertEqual(response.url, f"/courses/{self.course.id}/manage/")
-        self.assertEqual(Run.objects.count(), 2)
-        self.course.refresh_from_db()
-        self.assertEqual(self.course.status, "needs_review")
 
-    def test_record_review_and_poll(self):
-        self.run.status = "needs_review"
-        self.run.save()
-        self.course.status = "needs_review"
-        owner = get_user_model().objects.create_user(username="different-creator")
-        Profile.objects.create(user=owner, role="creator").groups.add(self.sales)
-        self.course.created_by = owner
+    def test_transcript_edit_clears_the_audio_and_never_logs_the_text(self):
         self.course.manifest["review"] = {"score": 7.5, "approved": False, "fact_checked": True}
-        self.course.save()
-        path = f"/courses/{self.course.id}/manage/"
-        transcript_path = f"/courses/{self.course.id}/episodes/1/transcript/"
-        old_revision = self.course.updated.isoformat()
-        text = "Approved wording for the sales team. <script>Literal text</script>"
+        self.in_review()
+        revision = self.course.updated.isoformat()
+        text = "Approved wording. <script>Literal text</script>"
         with (
-            patch("app_portal.transcripts.storage.read_text", return_value="Original text") as read,
+            patch("app_portal.transcripts.storage.read_text", return_value="Original text"),
             patch("app_portal.transcripts.storage.save_upload") as upload,
-            patch("app_portal.transcripts.storage.delete_blobs") as delete,
-            patch("app_portal.transcripts.storage.delete_prefix") as delete_all,
-            patch("app_portal.transcripts.storage.write_json") as write,
-            patch("app_portal.runs.dispatch") as send,
             patch("core.audit.telemetry.audit") as audit,
         ):
-            self.run.status = "running"
-            self.run.save()
-            response = self.client.post(
-                transcript_path, json.dumps({"text": text, "revision": old_revision}),
-                content_type="application/json", **self.headers,
-            )
-            self.assertEqual(response.status_code, 409)
-            self.run.status = "needs_review"
-            self.run.save()
+            valid = {"text": text, "revision": revision}
             for changes, code in (
-                ({"text": " \n\t"}, 400), ({"text": []}, 400), ({"text": "\ud800"}, 400),
-                ({"text": "x" * 100001}, 413), ({"revision": "stale"}, 409),
+                ({"text": " \n"}, 400), ({"text": "x" * 100001}, 413), ({"revision": "stale"}, 409),
                 ({"padding": "x" * (1024 * 1024)}, 413),
             ):
-                with self.subTest(invalid_fields=list(changes)):
-                    response = self.client.post(
-                        transcript_path,
-                        json.dumps({"text": text, "revision": old_revision, **changes}),
-                        content_type="application/json", **self.headers,
-                    )
-                    self.assertEqual(response.status_code, code)
+                with self.subTest(changes=list(changes)):
+                    self.assertEqual(self.post_transcript(**valid | changes).status_code, code)
             upload.assert_not_called()
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(
-                    transcript_path, json.dumps({"text": text, "revision": old_revision}),
-                    content_type="application/json", **self.headers,
-                )
-            self.assertEqual(response.status_code, 200)
-            self.course.refresh_from_db()
-            episode = self.course.manifest["episodes"][0]
-            self.assertNotEqual(episode["transcript"], self.manifest["episodes"][0]["transcript"])
-            self.assertIsNone(episode["audio"])
-            self.assertIsNone(episode["seconds"])
-            self.assertTrue(episode["edited"])
-            self.assertEqual(self.course.manifest["episodes"][1], self.manifest["episodes"][1])
-            self.assertEqual(self.course.status, "needs_review")
-            self.assertEqual(self.course.html, "")
-            self.assertEqual(self.course.manifest["review"]["score"], 7.5)
-            self.assertFalse(self.course.manifest["review"]["approved"])
-            self.assertFalse(self.course.manifest["review"]["fact_checked"])
-            self.assertTrue(self.course.manifest["review"]["edited"])
-            self.assertNotEqual(response.json()["revision"], old_revision)
-            upload.assert_called_once_with(
-                text.encode(), f"courses/{self.course.id}/{episode['transcript']}"
-            )
-            self.assertTrue(LogEntry.objects.filter(
-                user=self.user, change_message__contains="transcript.updated"
-            ).exists())
-            self.assertNotIn(text, str(audit.mock_calls))
-            self.assertFalse(LogEntry.objects.filter(change_message__contains=text).exists())
-            read.return_value = text
-            published_text = text + " More guidance."
-            self.course.status, self.course.html = "ready", "<!doctype html>Published"
-            self.course.save()
-            published_revision = self.course.updated.isoformat()
-            upload.reset_mock()
-            response = self.client.post(
-                transcript_path,
-                json.dumps({"text": published_text, "revision": published_revision}),
-                content_type="application/json", **self.headers,
-            )
-            self.assertEqual(response.status_code, 409)
-            response = self.client.post(
-                transcript_path,
-                json.dumps({
-                    "text": published_text, "revision": published_revision, "unpublish": "true",
-                }),
-                content_type="application/json", **self.headers,
-            )
-            self.assertIn(response.status_code, (400, 409))
+                self.assertEqual(self.post_transcript(**valid).status_code, 200)
+        self.course.refresh_from_db()
+        episode = self.course.manifest["episodes"][0]
+        self.assertIsNone(episode["audio"])
+        self.assertEqual(self.course.manifest["episodes"][1], self.manifest["episodes"][1])
+        self.assertFalse(self.course.manifest["review"]["fact_checked"])
+        upload.assert_called_once_with(
+            text.encode(), f"courses/{self.course.id}/{episode['transcript']}"
+        )
+        self.assertTrue(LogEntry.objects.filter(
+            user=self.user, change_message__contains="transcript.updated"
+        ).exists())
+        self.assertNotIn(text, str(audit.mock_calls))
+        self.assertFalse(LogEntry.objects.filter(change_message__contains=text).exists())
+
+    def test_editing_a_published_transcript_needs_unpublishing(self):
+        self.run.status = "needs_review"
+        self.run.save()
+        body = {"text": "New wording", "revision": self.course.updated.isoformat()}
+        with (
+            patch("app_portal.transcripts.storage.read_text", return_value="Original text"),
+            patch("app_portal.transcripts.storage.save_upload") as upload,
+        ):
+            self.assertEqual(self.post_transcript(**body).status_code, 409)
             upload.assert_not_called()
-            response = self.client.post(
-                transcript_path,
-                json.dumps({
-                    "text": published_text, "revision": published_revision, "unpublish": True,
-                }),
-                content_type="application/json", **self.headers,
-            )
-            self.assertEqual(response.status_code, 200)
-            self.course.refresh_from_db()
-            self.assertEqual(self.course.status, "needs_review")
-            self.assertEqual(self.course.html, "")
-            self.assertNotEqual(
-                self.course.manifest["episodes"][0]["transcript"], episode["transcript"]
-            )
-            self.assertEqual(Run.objects.count(), 1)
-            delete.assert_not_called()
-            delete_all.assert_not_called()
-            write.assert_not_called()
-            send.assert_not_called()
-        response = self.client.post(
-            path, {"action": "record", "approved": "on", "revision": old_revision}, **self.headers
+            self.assertEqual(self.post_transcript(**body, unpublish=True).status_code, 200)
+        self.course.refresh_from_db()
+        self.assertEqual(self.course.status, "needs_review")
+        self.assertEqual(self.course.html, "")
+
+    def test_recording_needs_approval_of_the_current_version_and_runs_once(self):
+        self.in_review()
+        path = f"/courses/{self.course.id}/manage/"
+        stale = self.course.updated.isoformat()
+        self.course.save()
+        revision = self.course.updated.isoformat()
+        approve = {"action": "record", "approved": "on", "revision": revision}
+        self.assertEqual(
+            self.client.post(path, {**approve, "revision": stale}, **self.headers).status_code, 409,
         )
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(Run.objects.count(), 1)
-        with patch("app_portal.views.storage.write_json") as write:
-            for title in (" ", "x" * 81):
-                response = self.client.post(
-                    path, {"action": "rename", "title": title}, **self.headers
-                )
-                self.assertEqual(response.status_code, 200)
-                self.assertContains(response, "errorlist")
-            write.assert_not_called()
-            response = self.client.post(
-                path, {"action": "rename", "title": "Reviewed title",
-                       "description": "Reviewed description"}, **self.headers,
-            )
-            self.assertEqual(response.url, path)
-            self.course.refresh_from_db()
-            self.assertEqual(self.course.title, "Reviewed title")
-            self.assertEqual(self.course.description, "Reviewed description")
-            self.assertEqual(self.course.manifest["title"], "Reviewed title")
-            self.assertEqual(self.course.manifest["description"], "Reviewed description")
-            write.assert_called_once_with(
-                f"courses/{self.course.id}/podcast.json", self.course.manifest
-            )
-            self.assertEqual(Run.objects.count(), 1)
-        response = self.client.post(path, {"action": "record"}, **self.headers)
-        self.assertContains(response, "Confirm your approval before recording.")
-        self.assertEqual(Run.objects.count(), 1)
-        response = self.client.get(f"/runs/{self.run.id}/", **self.headers)
-        self.assertContains(response, "Approve &amp; record audio")
-        response = self.client.post(
-            path, {"action": "record", "approved": "on",
-                   "revision": self.course.updated.isoformat()}, **self.headers,
+        self.assertContains(
+            self.client.post(path, {"action": "record"}, **self.headers),
+            "Confirm your approval before recording.",
         )
-        self.assertEqual(response.status_code, 302)
-        run = Run.objects.exclude(pk=self.run.pk).get()
-        self.assertEqual(run.task, "record")
+        self.assertEqual(Run.objects.count(), 1)
+        self.assertEqual(self.client.post(path, approve, **self.headers).status_code, 302)
+        self.assertEqual(Run.objects.exclude(pk=self.run.pk).get().task, "record")
         self.assertTrue(LogEntry.objects.filter(
             user=self.user, change_message__contains="course.review_approved"
         ).exists())
-        response = self.client.get(f"/runs/{self.run.id}/", **self.headers)
-        self.assertContains(response, "A newer run is in progress")
-        self.assertNotContains(response, "Approve &amp; record audio")
-        response = self.client.post(
-            path, {"action": "record", "approved": "on",
-                   "revision": self.course.updated.isoformat()}, **self.headers,
-        )
-        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.client.post(path, approve, **self.headers).status_code, 409)
         self.assertEqual(Run.objects.count(), 2)
-        response = self.client.get(
-            f"/runs/{run.id}/", HTTP_ACCEPT="application/json", **self.headers
-        )
-        self.assertEqual(response.json()["status"], "queued")
-        self.assertEqual(response["Cache-Control"], "private, no-store")
 
     def test_delete_episode_updates_blob_manifest_and_queues_render(self):
         self.run.status = "ready"
@@ -335,53 +207,29 @@ class ActionTests(PortalCase):
         ):
             response = self.client.post(
                 f"/courses/{self.course.id}/manage/",
-                {
-                    "action": "delete_episode",
-                    "episode": 1,
-                },
-                **self.headers,
+                {"action": "delete_episode", "episode": 1}, **self.headers,
             )
             deleted = list(delete.call_args.args[0])
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(
-            deleted,
-            [
-                f"courses/{self.course.id}/01 - First.mp3",
-                f"courses/{self.course.id}/01 - First.txt",
-            ],
-        )
-        manifest = write.call_args.args[1]
-        self.assertEqual(len(manifest["episodes"]), 1)
+        self.assertEqual(deleted, [
+            f"courses/{self.course.id}/01 - First.mp3", f"courses/{self.course.id}/01 - First.txt",
+        ])
+        self.assertEqual(len(write.call_args.args[1]["episodes"]), 1)
         self.assertEqual(Run.objects.exclude(pk=self.run.pk).get().task, "render")
-        Run.objects.filter(course=self.course).update(status="ready")
+
+    def test_renaming_a_ready_podcast_republishes_it_and_escapes_the_title(self):
+        self.run.status = "ready"
+        self.run.save()
+        path = f"/courses/{self.course.id}/manage/"
         with patch("app_portal.views.storage.write_json") as write:
             response = self.client.post(
-                f"/courses/{self.course.id}/manage/",
-                {"action": "rename", "title": "Ready <podcast> & learning"}, **self.headers,
+                path, {"action": "rename", "title": "Ready <podcast>"}, **self.headers,
             )
         run = Run.objects.get(status="queued")
         self.assertEqual(run.task, "render")
         self.assertEqual(response.url, f"/runs/{run.id}/")
-        self.assertEqual(write.call_args.args[1]["title"], "Ready <podcast> & learning")
-        response = self.client.get(f"/courses/{self.course.id}/manage/", **self.headers)
-        self.assertContains(response, "Ready &lt;podcast&gt; &amp; learning")
-        self.assertNotContains(response, "Ready <podcast>")
-        Run.objects.filter(course=self.course).update(status="ready")
-        self.course.status, self.course.manifest = "needs_review", self.manifest
-        self.course.save()
-        previous_runs = Run.objects.count()
-        with (
-            patch("app_portal.views.storage.delete_blobs"),
-            patch("app_portal.views.storage.write_json"),
-        ):
-            response = self.client.post(
-                f"/courses/{self.course.id}/manage/",
-                {"action": "delete_episode", "episode": 1}, **self.headers,
-            )
-        self.assertEqual(response.url, f"/courses/{self.course.id}/manage/")
-        self.assertEqual(Run.objects.count(), previous_runs)
-        self.course.refresh_from_db()
-        self.assertEqual(len(self.course.manifest["episodes"]), 1)
+        self.assertEqual(write.call_args.args[1]["title"], "Ready <podcast>")
+        self.assertNotContains(self.client.get(path, **self.headers), "Ready <podcast>")
 
     def test_delete_last_episode_deletes_course_and_blobs(self):
         self.run.status = "ready"
@@ -391,13 +239,9 @@ class ActionTests(PortalCase):
         with patch("app_portal.views.storage.delete_prefix") as delete:
             response = self.client.post(
                 f"/courses/{self.course.id}/manage/",
-                {
-                    "action": "delete_episode",
-                    "episode": 1,
-                },
-                **self.headers,
+                {"action": "delete_episode", "episode": 1}, **self.headers,
             )
-        self.assertEqual(response.url, "/libraries/")
+        self.assertEqual(response.url, f"/libraries/{SALES}/")
         delete.assert_called_once_with(f"courses/{self.course.id}")
         self.assertFalse(Course.objects.exists())
 

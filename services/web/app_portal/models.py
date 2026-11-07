@@ -21,26 +21,19 @@ class EntraGroup(models.Model):
     # The db_default values let the previous release keep writing during a rolling update.
     status = models.CharField(
         max_length=10,
-        default="discovered",
-        db_default="discovered",
+        default="hidden",
+        db_default="hidden",
         db_index=True,
         choices=[
-            ("discovered", "Hidden"),
+            ("hidden", "Hidden"),
             ("enabled", "Enabled"),
         ],
         help_text="<b>Hidden:</b> nobody can use it in the portal, including administrators. "
         "Groups appear here this way automatically when a member signs in. Hiding a library "
         "stops its pages, audio and shared podcasts. All data is kept, and setting Enabled again "
         "restores it.<br>"
-        "<b>Enabled:</b> a library. Members see it once it has a published podcast, and creators "
-        "can add podcasts to it.",
-    )
-    show_when_empty = models.BooleanField(
-        "show when empty",
-        default=False,
-        db_default=False,
-        help_text="List this library for creators and administrators before it has podcasts. "
-        "This does not grant membership or creator rights.",
+        "<b>Enabled:</b> a library. Creators and administrators see it straight away and can add "
+        "podcasts to it. Other members see it once it has a published podcast.",
     )
 
     class Meta:

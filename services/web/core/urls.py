@@ -13,7 +13,6 @@ urlpatterns = [
     path("index.html", RedirectView.as_view(pattern_name="signin")),
     path("healthz", core_views.health),
     path(".auth/login/aad", entra.login),
-    path(".auth/logout", entra.logout),
     path("auth/login/aad/callback", entra.callback),
     path("signout/", entra.signout),
     path("signed-out/", sessions.signed_out),

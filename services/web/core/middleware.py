@@ -26,7 +26,7 @@ from shared import telemetry
 def excluded(path):
     return (
         path in {
-            "/", "/index.html", "/healthz", "/.auth/login/aad", "/.auth/logout",
+            "/", "/index.html", "/healthz", "/.auth/login/aad",
             "/auth/login/aad/callback", sessions.SIGNED_OUT,
         }
         or path.startswith("/static/")
@@ -129,11 +129,8 @@ class IdentityMiddleware:
         if sessions.expired(request.session):
             return sessions.signin_required(request, expired=True)
         try:
-            if settings.AUTH_MODE in {"dev", "entra"}:
-                if settings.AUTH_MODE == "entra":
-                    from core.entra import identity
-                else:
-                    from core.dev import identity
+            if settings.AUTH_MODE == "entra":
+                from core.entra import identity
 
                 person = identity(request)
                 if not person:
