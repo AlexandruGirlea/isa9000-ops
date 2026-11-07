@@ -5,6 +5,7 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import quote
 
+from django.contrib.messages import get_messages
 from isa9000.config import DEFAULT_COLOR, DEFAULT_MARKS, LOGO_TYPES, load_config
 from jinja2 import ChoiceLoader, DictLoader, Environment, PackageLoader
 from markupsafe import Markup
@@ -45,12 +46,13 @@ def environment(**options):
             options["loader"],
             DictLoader({"base.html": base.replace(
                 "<script>", '<script nonce="{{ request.csp_nonce }}">',
-            )}),
+            ).replace("<body>", '<body>{% include "portal_messages.html" %}', 1)}),
             package,
         ]
     )
     env = Environment(**options)
     env.filters["description_markdown"] = render_description
+    env.globals["get_messages"] = get_messages
     env.globals["description_css"] = Markup(DESCRIPTION_CSS)
     env.globals["generation_css"] = Markup(
         files("isa9000").joinpath("audio_generation_ui/static/theme.css").read_text()

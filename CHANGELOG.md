@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.1.1
+
+- **Upgrade note:** groups no longer become libraries by themselves. On upgrade, groups that
+  own or receive a podcast become enabled libraries and all other groups are
+  hidden. Nothing is deleted. Enable further groups under **Admin → Libraries / Entra groups**.
+- **Upgrade note:** everyone in the company's Entra directory can now sign in, including invited
+  guests. People with no library access see no libraries. `authApp: create` no longer requires
+  assignment to the application, and `groupClaims` defaults to `SecurityGroup` so each person's
+  groups appear in the admin. Set `groupClaims: ApplicationGroup` to send only assigned groups.
+  With your own registration, set **Assignment required** to **No** yourself.
+- Sign-ins list each group under **Admin → Libraries / Entra groups**, hidden and named after its Entra ID.
+  Administrators open a group to rename and enable it.
+- Administrators control whether a group is a library: hidden or enabled. Hiding one revokes
+  portal access and keeps all data. Viewers see a library once it has a published podcast;
+  creators and administrators see it straight away. **New library** is now **Add podcast**.
+- People whose token has no usable group list (Entra group overage, missing or malformed
+  claims) can sign in instead of getting a 403 error. Stale memberships never grant access.
+- New optional `isa9000:graphGroups`: when a token has too many groups to list them, the
+  application asks Microsoft Graph with that person's own sign-in, so their libraries and
+  administrator access work automatically. Off by default. Grant admin consent first, because
+  its permissions are requested at every sign-in; see group overage in the operator guide.
+- Confirmations and notices use the application's own dialogs instead of browser pop-ups, and
+  the admin no longer opens pop-up windows for related records.
+- The admin identifies people by name and email.
+- Signing out, or a session timing out, ends only this application's session and returns to the
+  landing page. People stay signed in to Microsoft and everything else they have open.
+- **Contact** lets creators send requests to administrators, who track them in the admin.
+- The podcast title is optional when creating a podcast; without one, isa9000 chooses it.
+- Short podcast descriptions show their formatting on the course page instead of a plain excerpt.
+- **Cancel processing** replaces **Stop**: it asks first, deletes what the run created, and
+  History shows **User canceled** and who did it.
+- Failed runs show creators a short message and a reference. Raw errors and the activity log
+  are visible only to administrators.
+- The admin shows people by name and who last edited each podcast. **Activity** cannot be
+  changed by administrators, and a PostgreSQL trigger refuses updates and deletes.
+- Audited local library access with reason, expiry and revocation, independent of Entra
+  sync. The user page shows each person's access sources.
+- A local **Application administrator** flag and an `app_admin` operator recovery command.
+  Library membership never implies administration.
+- Admin lists and pickers stay fast at scale: filters, pagination and searchable selectors.
+  Portal library lists use set-based queries, pagination and server-side search.
+- Fixes: tokens with about 130 to 200 groups were rejected by the web server's header limit,
+  and the admin's date pickers and selection counter were blocked by the content security
+  policy.
+- Fixes found deploying to Azure: worker callbacks use the app's real Azure hostname, the
+  dead-letter alert serializes correctly, PostgreSQL changes run one at a time,
+  `bootstrap.sh` trusts the OIDC subject GitHub actually issues, the workflows supply the
+  federated token Pulumi's Azure Blob backend needs, including after long deployments, and the stack no longer tries to
+  assign a role on a Foundry account outside its resource group.
+- The image now installs Debian's latest security updates when it is built, including the zlib
+  fix for CVE-2026-85091.
+- Removed the legacy dev sign-in mode (`ISA9000_AUTH=dev`) with `make seed` and `make local-user`.
+  `make fake-user` now needs a library: `make fake-user ARGS="--group LIBRARY-ID"`.
+
 ## 0.1.0
 
 - First release: the hosted, multi-user isa9000 on Azure.

@@ -14,10 +14,20 @@ if s.auth_app == "create":
         display_name=s.prefix,
         sign_in_audience="AzureADMyOrg",
         group_membership_claims=[s.group_claims],
+        # What sign-in requests with graphGroups, declared so IT can grant all of it beforehand.
+        required_resource_accesses=[{
+            "resource_app_id": "00000003-0000-0000-c000-000000000000",  # Microsoft Graph
+            "resource_accesses": [
+                {"id": "37f7f235-527c-4136-accd-4a02d197296e", "type": "Scope"},  # openid
+                {"id": "14dad69e-099b-42c9-810b-d002981feec1", "type": "Scope"},  # profile
+                {"id": "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0", "type": "Scope"},  # email
+                {"id": "e1fe6dd8-ba31-4d61-89e7-88639da4683d", "type": "Scope"},  # User.Read
+            ],
+        }],
         owners=[s.client.object_id],
         web={
             "redirect_uris": [
-                pulumi.Output.concat("https://", edge.azure_host, "/.auth/login/aad/callback")
+                pulumi.Output.concat("https://", edge.azure_host, "/.auth/login/aad/callback"),
             ],
             "implicit_grant": {"id_token_issuance_enabled": True},
         },
@@ -26,7 +36,7 @@ if s.auth_app == "create":
     azuread.ServicePrincipal(
         "auth-service-principal",
         client_id=registration.client_id,
-        app_role_assignment_required=True,
+        app_role_assignment_required=False,
         owners=[s.client.object_id],
         tags=[f"{key}={value}" for key, value in s.tags.items()],
     )
@@ -106,8 +116,9 @@ web_env = variables(
         "ISA9000_AUTH": "easyauth",
         "ISA9000_ENTRA_TENANT_ID": s.tenant,
         "ISA9000_ENTRA_CLIENT_ID": auth_client_id,
-        "ISA9000_ALLOWED_HOSTS": pulumi.Output.concat(edge.azure_host, ",", edge.internal_host),
-        "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat("https://", edge.internal_host),
+        "ISA9000_GRAPH_GROUPS": str(s.graph_groups).lower(),
+        "ISA9000_ALLOWED_HOSTS": edge.azure_host,
+        "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat("https://", edge.azure_host),
         "ISA9000_DAILY_RUNS_PER_USER": str(s.config.get_int("dailyRunsPerUser") or 5),
         "ISA9000_MAX_UPLOAD_MB": str(s.config.get_int("maxUploadMb") or 20),
         "ISA9000_MAX_FILES": str(s.config.get_int("maxFiles") or 10),
@@ -122,8 +133,8 @@ web_env = variables(
 )
 minimum = s.config.get_int("webMinReplicas")
 if minimum is None:
-    minimum = 2 if s.environment == "prod" else 0
-maximum = s.config.get_int("webMaxReplicas") or 3
+    minimum = 1 if s.environment == "prod" else 0
+maximum = s.config.get_int("webMaxReplicas") or (5 if s.environment == "prod" else 3)
 if minimum < 0 or maximum < max(1, minimum):
     raise ValueError("webMaxReplicas must be positive and at least webMinReplicas")
 web = app.ContainerApp(
@@ -149,7 +160,10 @@ web = app.ContainerApp(
                 "name": "web",
                 "image": s.image,
                 "args": ["gunicorn", "-c", "gunicorn.conf.py", "core.wsgi"],
-                "resources": {"cpu": 0.5, "memory": "1Gi"},
+                "resources": (
+                    {"cpu": 2, "memory": "4Gi"} if s.environment == "prod"
+                    else {"cpu": 0.5, "memory": "1Gi"}
+                ),
                 "env": web_env,
                 "volume_mounts": [s.config_mount],
                 "probes": [
@@ -181,7 +195,7 @@ web = app.ContainerApp(
         depends_on=[
             *data.permissions,
             data.database_access,
-            data.database_schema,
+            data.database_ready,
         ]
     ),
     **data.common,
@@ -219,6 +233,10 @@ auth = app.ContainerAppsAuthConfig(
                 "open_id_issuer": f"https://login.microsoftonline.com/{s.tenant}/v2.0",
             },
             "validation": {"allowed_audiences": [auth_client_id]},
+            "login": (
+                {"login_parameters": ["scope=openid profile email User.Read"]}
+                if s.graph_groups else None
+            ),
         }
     },
     http_settings={"require_https": True, "forward_proxy": {"convention": "NoProxy"}},
@@ -242,8 +260,7 @@ worker = app.Job(
             "replica_completion_count": 1,
             "scale": {
                 "min_executions": 0,
-                "max_executions": s.config.get_int("workerMaxExecutions")
-                or (10 if s.environment == "prod" else 3),
+                "max_executions": s.config.get_int("workerMaxExecutions") or 5,
                 "polling_interval": s.config.get_int("workerPollingSeconds") or 10,
                 "rules": [
                     {
@@ -266,7 +283,10 @@ worker = app.Job(
                 "name": "worker",
                 "image": s.image,
                 "args": ["python", "-m", "worker"],
-                "resources": {"cpu": 1, "memory": "2Gi"},
+                "resources": (
+                    {"cpu": 2, "memory": "4Gi"} if s.environment == "prod"
+                    else {"cpu": 1, "memory": "2Gi"}
+                ),
                 "env": variables(
                     {
                         **shared_env,
@@ -274,7 +294,7 @@ worker = app.Job(
                         "AZURE_CLIENT_ID": data.worker_identity.client_id,
                         "ISA9000_AZURE_OPENAI_ENDPOINT": data.foundry_endpoint,
                         "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat(
-                            "https://", edge.internal_host
+                            "https://", edge.azure_host
                         ),
                     },
                     worker_secret_env,

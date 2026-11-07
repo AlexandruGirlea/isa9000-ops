@@ -295,7 +295,9 @@ class Run:
             else:
                 result.update(error=self.error or self.stderr or f"isa9000 exited with {code}.",
                               error_source="isa9000")
-            self.save()
+            # A canceled run keeps nothing: this workspace disappears with the task.
+            if result["state"] != "stopped":
+                self.save()
             if result["state"] == "ready":
                 if self.manifest is None:
                     raise WorkerError("The CLI did not produce a course manifest.")
@@ -310,7 +312,7 @@ class Run:
             result.update(state="failed", html=None, error_source="worker",
                           error=str(error) if isinstance(error, (WorkerError, CallbackError))
                           else "The worker could not finish the task.")
-            if not self.upload_attempted:
+            if not self.upload_attempted and not self.cancelled.is_set():
                 try:
                     self.save()
                 except Exception:
@@ -323,7 +325,7 @@ class Run:
                           error="The progress callback failed.")
         if self.cancelled.is_set() and result["error_source"] != "worker":
             result.update(state="stopped", html=None, error="", error_source="")
-        result["manifest"] = self.manifest
+        result["manifest"] = None if self.cancelled.is_set() else self.manifest
         return result
 
 

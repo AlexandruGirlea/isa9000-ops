@@ -17,6 +17,17 @@ repository=$5
 [[ "$repository" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]
 [[ "$storage_account" =~ ^[a-z0-9]{3,24}$ ]]
 
+# New repositories issue immutable subjects with owner and repository IDs; older ones do not.
+subject_prefix=${GITHUB_OIDC_SUBJECT_PREFIX:-$(gh api \
+    "repos/$repository/actions/oidc/customization/sub" \
+    --jq 'if .use_default then .sub_claim_prefix // "" else "" end' || true)}
+if [[ "$subject_prefix" != repo:* ]]; then
+    printf '%s\n' \
+        'Could not read a default GitHub OIDC subject for this repository.' \
+        'Sign in with gh, or set GITHUB_OIDC_SUBJECT_PREFIX to the prefix before :environment:ENV.' >&2
+    exit 1
+fi
+
 az account set --subscription "$subscription"
 az group create --name "$state_group" --location "$location" \
     --tags project=isa9000 env=shared managedBy=manual --output none
@@ -75,7 +86,7 @@ for environment in dev test prod preview; do
             --resource-group "$state_group" --name "pulumi-$environment" \
             --public-access off --output none
     fi
-    subject="repo:$repository:environment:$environment"
+    subject="$subject_prefix:environment:$environment"
     deploy_scope="/subscriptions/$subscription/resourceGroups/rg-isa9000-$target_environment"
     az identity federated-credential create --name github --identity-name "$identity" \
         --resource-group "$state_group" --issuer https://token.actions.githubusercontent.com \

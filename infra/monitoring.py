@@ -33,21 +33,22 @@ monitor.MetricAlert(
     window_size="PT5M",
     scopes=[data.bus.id],
     actions=[{"action_group_id": action_group.id}],
-    criteria={
-        "odata_type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
-        "all_of": [
-            {
-                "name": "dead-letters",
-                "criterion_type": "StaticThresholdCriterion",
-                "metric_namespace": "Microsoft.ServiceBus/namespaces",
-                "metric_name": "DeadletteredMessages",
-                "operator": "GreaterThan",
-                "threshold": 0,
-                "time_aggregation": "Maximum",
-                "dimensions": [{"name": "EntityName", "operator": "Include", "values": ["tasks"]}],
-            }
+    # This union-typed input needs its Args classes; plain dictionaries are not translated.
+    criteria=monitor.MetricAlertSingleResourceMultipleMetricCriteriaArgs(
+        odata_type="Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+        all_of=[
+            monitor.MetricCriteriaArgs(
+                name="dead-letters",
+                criterion_type="StaticThresholdCriterion",
+                metric_namespace="Microsoft.ServiceBus/namespaces",
+                metric_name="DeadletteredMessages",
+                operator="GreaterThan",
+                threshold=0,
+                time_aggregation="Maximum",
+                dimensions=[{"name": "EntityName", "operator": "Include", "values": ["tasks"]}],
+            )
         ],
-    },
+    ),
 )
 queries = {
     "failed-runs": (

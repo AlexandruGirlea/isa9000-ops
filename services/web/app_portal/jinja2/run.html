@@ -14,9 +14,10 @@
     <ol id="steps" class="steps" aria-label="Podcast progress">
       {% for step in steps %}<li class="st {{ step.status }}"><span class="ic" aria-hidden="true">{{ {'done':'✓', 'failed':'✕', 'stopped':'■', 'skipped':'–', 'waiting':'–'}.get(step.status, '') }}</span><span class="lb">{{ step.label }}</span><span class="dt">{{ step.detail }}</span></li>{% else %}<li class="idle">{% if active %}Waiting for a worker to begin…{% else %}No steps were recorded.{% endif %}</li>{% endfor %}
     </ol>
-    <pre id="run-error" class="console warn" {% if not run.error %}hidden{% endif %}>{{ run.error }}</pre>
+    <div id="run-error" class="console warn" {% if not failure %}hidden{% endif %}>{{ failure }}{% if failure %} Reference: {{ run.correlation_id }}{% if request.user.is_superuser %} · <a href="/admin/app_portal/run/{{ run.id }}/change/">See details in admin</a>{% endif %}{% endif %}</div>
+    {% if run.status == 'stopped' %}<p class="hint">Canceled{% if run.canceled_by %} by {{ run.canceled_by_name }}{% endif %}{% if run.finished %} on {{ run.finished.strftime('%d %B %Y, %H:%M') }} UTC{% endif %}. Files created by this run were deleted.</p>{% endif %}
     <form method="post" class="row-actions page-actions">{{ csrf_input }}
-      {% if active %}<button id="stop-run" class="ghost danger" name="action" value="stop" {% if run.cancel_requested %}disabled{% endif %}>{{ 'Stopping…' if run.cancel_requested else 'Stop' }}</button>{% elif run.status in ['failed','stopped'] and not active_run and course.status != 'ready' %}<button class="ghost" name="action" value="retry"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> {{ 'Review saved transcripts' if review_retry else 'Retry' }}</button>{% endif %}
+      {% if active %}<button id="stop-run" class="ghost danger" name="action" value="stop" data-confirm="{{ cancel_warning }}" {% if run.cancel_requested %}disabled{% endif %}>{{ 'Canceling…' if run.cancel_requested else 'Cancel processing' }}</button>{% elif run.status in ['failed','stopped'] and not active_run and course.status != 'ready' %}<button class="ghost" name="action" value="retry"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> {{ 'Review saved transcripts' if review_retry else 'Retry' }}</button>{% endif %}
       {% if run.status == 'ready' %}<a class="button-link" href="/courses/{{ run.course_id }}/"><i class="bi bi-play-circle" aria-hidden="true"></i> Open podcast</a>{% endif %}
     </form>
     {% if active %}<p id="connection-status" class="hint" role="status" style="margin-top:16px">Updates automatically. Reopen this podcast from your library to return here.</p>{% endif %}
@@ -34,10 +35,10 @@
       </dl>{% endif %}
       <a class="link-btn" href="/courses/{{ run.course_id }}/manage/">Manage podcast <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
     </section>
-    <section class="card"><h2>Activity</h2><p id="log-empty" class="hint" {% if messages %}hidden{% endif %}>Activity will appear as the podcast is processed.</p>
+    {% if request.user.is_superuser %}<section class="card"><h2>Activity</h2><p id="log-empty" class="hint" {% if messages %}hidden{% endif %}>Activity will appear as the podcast is processed.</p>
       <pre id="run-log" class="console" {% if not messages %}hidden{% endif %}>{% for line in messages %}{{ line }}{{ '\n' }}{% endfor %}</pre>
       <details><summary>Run details</summary><p class="hint mono" style="margin-top:12px">Reference: {{ run.correlation_id }}</p></details>
-    </section>
+    </section>{% endif %}
   </div>
 </div></div></div></section>
 {% endblock %}
@@ -60,9 +61,7 @@
       if (!['queued', 'running'].includes(data.status)) { location.reload(); return; }
       document.getElementById('run-status').textContent = data.label;
       const stop = document.getElementById('stop-run');
-      if (data.cancel_requested) { stop.disabled = true; stop.textContent = 'Stopping…'; }
-      const error = document.getElementById('run-error');
-      error.textContent = data.error; error.hidden = !data.error;
+      if (data.cancel_requested) { stop.disabled = true; stop.textContent = 'Canceling…'; }
       const target = document.getElementById('steps');
       if (data.steps.length) {
         target.replaceChildren();
@@ -76,10 +75,12 @@
         }
       }
       const log = document.getElementById('run-log');
-      const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
-      log.textContent = data.log.join('\n'); log.hidden = !data.log.length;
-      document.getElementById('log-empty').hidden = !!data.log.length;
-      if (atBottom) log.scrollTop = log.scrollHeight;
+      if (log) {
+        const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+        log.textContent = data.log.join('\n'); log.hidden = !data.log.length;
+        document.getElementById('log-empty').hidden = !!data.log.length;
+        if (atBottom) log.scrollTop = log.scrollHeight;
+      }
       connection.textContent = 'Live updates · Reopen this podcast from your library to return here.';
     } catch (_) { connection.textContent = 'Connection interrupted. Reconnecting automatically…'; }
     setTimeout(poll, 1500);

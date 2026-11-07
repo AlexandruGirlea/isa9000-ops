@@ -3,16 +3,15 @@ COMPOSE ?= docker compose
 ENV ?= dev
 export PYTHONDONTWRITEBYTECODE := 1
 
-.PHONY: help configure local-run local-user fake-user up up-real seed scale logs ps shell test check image preview down clean
+.PHONY: help configure local-run fake-user up up-real scale logs ps shell test check image preview down clean
 
 help:
 	@printf '%s\n' \
 	  'local-run Build and start locally with real Entra sign-in and the configured worker' \
 	  'configure Generate private local settings; no cloud changes' \
-	  'fake-user Create a local viewer and print its cookie; n=3 refreshes existing user #3' \
+	  'fake-user Create a local viewer and print its cookie: ARGS="--group LIBRARY-ID"; n=3 refreshes user #3' \
 	  'up       Build and start the configured local stack; defaults to the free stub' \
 	  'up-real  Start real isa9000; requires approval and spends Foundry credit' \
-	  'seed     Add demo groups and a course through the render queue' \
 	  'scale    Set worker count: make scale n=3' \
 	  'logs     Follow logs; optionally s=worker' \
 	  'ps       Show services' \
@@ -30,9 +29,6 @@ local-run: up
 configure:
 	python3 local/configure.py
 
-local-user:
-	@$(COMPOSE) exec -T --workdir /app/web web python manage.py local_user $(ARGS)
-
 fake-user: export ISA9000_FAKE_USER_NUMBER = $(n)
 fake-user:
 	@$(COMPOSE) exec -T -e ISA9000_FAKE_USER_NUMBER --workdir /app/web web python manage.py fake_user $(ARGS)
@@ -44,9 +40,6 @@ up: configure image
 up-real: configure image
 	ISA9000_CLI='python -m worker.cli' \
 	  $(COMPOSE) up --no-build --detach --wait web worker watchdog
-
-seed:
-	$(COMPOSE) exec web python manage.py seed
 
 scale: n ?= 1
 scale:

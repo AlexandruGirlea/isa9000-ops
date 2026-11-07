@@ -113,10 +113,22 @@ class Mocks(pulumi.runtime.Mocks):
         raise AssertionError(f"Unexpected provider invoke: {args.token}")
 
 
+dependencies = {}
+register = pulumi.Resource.__init__
+
+
+def record_dependencies(self, typ, name, custom, props=None, opts=None, *rest):
+    dependencies[name] = [item._name for item in (opts.depends_on if opts else None) or []]
+    register(self, typ, name, custom, props, opts, *rest)
+
+
+pulumi.Resource.__init__ = record_dependencies
 mocks = Mocks()
 pulumi.runtime.set_mocks(mocks, project="isa9000", stack=environment, preview=False)
 pulumi.runtime.set_all_config(config, secret_keys=["isa9000:adminGroupId", "isa9000:authApp"])
 asyncio.get_event_loop().run_until_complete(
     run_pulumi_func(lambda: runpy.run_path(str(root / "__main__.py")))
 )
-print(json.dumps({"resources": mocks.resources, "calls": mocks.calls}))
+print(json.dumps(
+    {"resources": mocks.resources, "calls": mocks.calls, "dependencies": dependencies}
+))

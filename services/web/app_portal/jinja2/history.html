@@ -17,6 +17,8 @@
 [data-theme="dark"] .history-table .history-status--needs_review { color: #f6d189; background: #49371b; }
 [data-theme="dark"] .history-table .history-status--failed { color: #ffb4b4; background: #492626; }
 .history-table .mobile-meta { display: none; }
+.history-table .history-canceled-by { display: block; margin-top: 4px; font-size: .75rem; color: var(--text-muted-custom); }
+.history-table .history-canceled-by:empty { display: none; }
 @media (max-width: 575px) {
   .history-table { font-size: .9rem; }
   .history-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -37,27 +39,50 @@
 <div class="generation-workspace"><section class="card">
   <h2>Your podcasts</h2><p class="hint">Newest first. Open a title to listen or continue creating. Check the status and latest activity below.</p>
   <table class="history-table"><thead><tr><th scope="col">Podcast</th><th scope="col" class="optional-column">Library</th><th scope="col" class="optional-column">Created (UTC)</th><th scope="col">Status</th><th scope="col">Latest activity</th></tr></thead><tbody>
-  {% for course in courses %}
-  {% set run = course.history_runs|first %}
-  {% set status = run.status if run and run.status != 'ready' else course.status %}
-  {% set status_label = {'queued': 'Queued', 'running': 'In progress', 'ready': 'Ready', 'needs_review': 'Needs review', 'failed': 'Failed', 'stopped': 'Stopped', 'draft': 'Draft'}.get(status, 'Draft') %}
-  {% if status == 'needs_review' %}
-    {% set action, destination = 'Review transcripts', '/courses/' ~ course.id ~ '/manage/' %}
-  {% elif run %}
-    {% set action = 'View progress' if status in ('queued', 'running') else 'View result' if status == 'ready' else 'View details' %}
-    {% set destination = '/runs/' ~ run.id ~ '/' %}
-  {% else %}
-    {% set action = 'View podcast' if status == 'ready' else 'Edit podcast' %}
-    {% set destination = '/courses/' ~ course.id ~ '/' if status == 'ready' else '/courses/' ~ course.id ~ '/manage/' %}
-  {% endif %}
-  <tr>
-    <td><a href="/courses/{{ course.id }}/">{{ course.title or 'Podcast in progress' }}</a><span class="mobile-meta">{{ course.group }}<br>{{ course.created.strftime('%d %b %Y, %H:%M') }} UTC</span></td>
+  {% for course, row in rows %}
+  <tr data-course="{{ row.id }}" data-status="{{ row.status }}">
+    <td><a class="history-title" href="/courses/{{ course.id }}/">{{ row.title }}</a><span class="mobile-meta">{{ course.group }}<br>{{ course.created.strftime('%d %b %Y, %H:%M') }} UTC</span></td>
     <td class="optional-column">{{ course.group }}</td><td class="optional-column">{{ course.created.strftime('%d %b %Y, %H:%M') }}</td>
-    <td><span class="history-status history-status--{{ status }}">{{ status_label }}</span></td>
-    <td><a class="history-action" href="{{ destination }}" aria-label="{{ action }}: {{ course.title or 'Untitled podcast' }}">{{ action }} <i class="bi bi-arrow-right" aria-hidden="true"></i></a></td>
+    <td aria-live="polite"><span class="history-status history-status--{{ row.status }}">{{ row.label }}</span><span class="history-canceled-by">{% if row.canceled_by %}by {{ row.canceled_by }}{% endif %}</span></td>
+    <td><a class="history-action" href="{{ row.url }}" aria-label="{{ row.action }}: {{ row.title }}"><span>{{ row.action }}</span> <i class="bi bi-arrow-right" aria-hidden="true"></i></a></td>
   </tr>{% else %}<tr><td colspan="5">You haven't created any podcasts yet.</td></tr>{% endfor %}
   </tbody></table>
 </section>
 {% if courses.has_other_pages() %}<nav class="row-actions page-actions" aria-label="History pages">{% if courses.has_previous() %}<a href="?page={{ courses.previous_page_number() }}">Previous</a>{% endif %}<span>Page {{ courses.number }} of {{ courses.paginator.num_pages }}</span>{% if courses.has_next() %}<a href="?page={{ courses.next_page_number() }}">Next</a>{% endif %}</nav>{% endif %}
 </div></div></section>
 {% endblock %}
+{% block extra_js %}{{ super() }}<script nonce="{{ request.csp_nonce }}">
+(() => {
+  let timer = null;
+  const active = () => document.querySelector('tr[data-status="queued"], tr[data-status="running"]');
+  function apply(rows) {
+    for (const item of rows) {
+      const row = document.querySelector(`tr[data-course="${item.id}"]`);
+      if (!row) continue;
+      row.dataset.status = item.status;
+      row.querySelector('.history-title').textContent = item.title;
+      const badge = row.querySelector('.history-status');
+      badge.className = `history-status history-status--${item.status}`;
+      badge.textContent = item.label;
+      row.querySelector('.history-canceled-by').textContent = item.canceled_by ? `by ${item.canceled_by}` : '';
+      const action = row.querySelector('.history-action');
+      action.href = item.url;
+      action.setAttribute('aria-label', `${item.action}: ${item.title}`);
+      action.querySelector('span').textContent = item.action;
+    }
+  }
+  async function refresh() {
+    clearTimeout(timer);
+    let delay = 3000;
+    try {
+      const response = await fetch(location.href, {headers: {Accept: 'application/json'}, cache: 'no-store', redirect: 'manual'});
+      if (response.type === 'opaqueredirect' || (response.status >= 400 && response.status < 500)) return;
+      if (!response.ok) throw new Error();
+      apply((await response.json()).rows);
+    } catch (_) { delay = 10000; }
+    if (active() && !document.hidden) timer = setTimeout(refresh, delay);
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  if (active()) timer = setTimeout(refresh, 3000);
+})();
+</script>{% endblock %}

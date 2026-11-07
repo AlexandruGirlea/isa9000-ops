@@ -3,11 +3,12 @@ from __future__ import annotations
 import time
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.middleware.csrf import rotate_token
 from django.shortcuts import redirect
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
+SIGNED_OUT = "/signed-out/"
 
 def start(session, oid, *, request=None):
     now = time.time()
@@ -30,7 +31,7 @@ def expired(session):
 
 def signin_required(request, *, expired=False):
     target = (
-        "/.auth/logout?post_logout_redirect_uri=/"
+        SIGNED_OUT
         if expired and settings.AUTH_MODE == "easyauth" else
         settings.LOGIN_URL if settings.AUTH_MODE == "easyauth" else "/"
     )
@@ -38,6 +39,19 @@ def signin_required(request, *, expired=False):
     if request.path == "/session/activity/":
         return JsonResponse({"signin": target}, status=401)
     return redirect(target)
+
+
+@require_GET
+def signed_out(request):
+    if settings.AUTH_MODE != "easyauth":
+        raise Http404
+    # Easy Auth clears its cookie and tokens on this call. Following its redirect would also sign
+    # the person out of Microsoft, and so out of everything else they have open there.
+    return HttpResponse(
+        f'<!doctype html><title>Signing out</title><script nonce="{request.csp_nonce}">'
+        'fetch("/.auth/logout", {redirect: "manual"}).finally(() => location.replace("/"))'
+        "</script>"
+    )
 
 
 @require_POST

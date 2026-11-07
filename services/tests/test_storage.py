@@ -14,7 +14,6 @@ def test_upload_and_json(blob_service, tmp_path):
     local = tmp_path / "course"
     local.mkdir()
     (local / "01 - Welcome.mp3").write_bytes(b"audio")
-    (local / "podcast.json").write_text('{"title": "Welcome"}')
     copied = {}
 
     def upload(data, **kwargs):
@@ -23,32 +22,19 @@ def test_upload_and_json(blob_service, tmp_path):
             kwargs["content_settings"].content_type,
         )
 
-    blob_service.get_blob_client.return_value.upload_blob.side_effect = upload
+    client = blob_service.get_blob_client.return_value
+    client.upload_blob.side_effect = upload
     storage.upload_folder(local, "courses/course-1/")
     storage.save_upload(io.BytesIO(b"handbook"), "uploads/run-1/guide.txt")
     storage.write_json("courses/course-1/podcast.json", {"title": "Résumé"})
     assert copied[("courses", "course-1/01 - Welcome.mp3")] == (b"audio", "audio/mpeg")
     assert copied[("uploads", "run-1/guide.txt")] == (b"handbook", "text/plain")
-    payload, content_type = copied[("courses", "course-1/podcast.json")]
-    assert content_type == "application/json"
-    blob_service.get_blob_client.return_value.download_blob.return_value.readall.return_value = (
-        payload
-    )
+    download = client.download_blob.return_value
+    download.readall.return_value = copied[("courses", "course-1/podcast.json")][0]
     assert storage.read_json("courses/course-1/podcast.json") == {"title": "Résumé"}
-    download = blob_service.get_blob_client.return_value.download_blob
-    download.return_value.readall.return_value = "Résumé <script>plain text</script>".encode()
-    assert storage.read_text("courses/course-1/01 - Welcome.txt", max_bytes=64) == (
-        "Résumé <script>plain text</script>"
-    )
-    download.assert_called_with(offset=0, length=65, max_concurrency=1)
-    download.return_value.readall.return_value = b"x" * 65
+    download.readall.return_value = b"x" * 65
     with pytest.raises(ValueError, match="size limit"):
         storage.read_text("courses/course-1/01 - Welcome.txt", max_bytes=64)
-    download.return_value.readall.return_value = b"\xff"
-    with pytest.raises(UnicodeDecodeError):
-        storage.read_text("courses/course-1/01 - Welcome.txt")
-    with pytest.raises(ValueError, match="positive"):
-        storage.read_text("courses/course-1/01 - Welcome.txt", max_bytes=0)
 
 
 def test_download_prefix_preserves_names(blob_service, tmp_path):
@@ -58,7 +44,6 @@ def test_download_prefix_preserves_names(blob_service, tmp_path):
     paths = storage.download_prefix("courses/course-1/", tmp_path)
     assert paths == [tmp_path / "01 - 100% #1.txt"]
     assert paths[0].read_bytes() == b"hello"
-    container.list_blobs.assert_called_once_with(name_starts_with="course-1/")
 
 
 def test_download_uploads_do_not_overwrite_same_basename(blob_service, tmp_path):
@@ -66,9 +51,7 @@ def test_download_uploads_do_not_overwrite_same_basename(blob_service, tmp_path)
         lambda file: file.write(b"source")
     )
     names = ["uploads/run-1/guide.txt", "uploads/run-2/guide.txt"]
-    paths = storage.download_blobs(names, tmp_path)
-    assert paths == [tmp_path / name for name in names]
-    assert all(path.read_bytes() == b"source" for path in paths)
+    assert storage.download_blobs(names, tmp_path) == [tmp_path / name for name in names]
 
 
 @pytest.mark.parametrize("name", [

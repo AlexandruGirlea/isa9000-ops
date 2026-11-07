@@ -4,6 +4,7 @@ import hmac
 import json
 from urllib.parse import urlsplit
 
+from azure.core.exceptions import AzureError
 from core.audit import record
 from django.conf import settings
 from django.db import transaction
@@ -13,7 +14,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from app_portal.models import Course, Run
-from shared import payloads, telemetry
+from shared import payloads, storage, telemetry
 
 
 def reply(body, run_id, action):
@@ -104,6 +105,17 @@ def callback(request, run_id, action):
             if run.result == body:
                 return reply({"ok": True}, run_id, action)
             return JsonResponse({"error": "Request has already finished"}, status=409)
+        if state == "stopped":
+            manifest = None
+            # Only a podcast that never saved anything has files from this run alone.
+            if run.task == "create" and course.status == "draft" and not course.manifest:
+                try:
+                    storage.delete_prefix(f"courses/{course.id}")
+                except AzureError:
+                    telemetry.log(__name__).error(
+                        "Could not delete canceled files",
+                        extra={"run_id": str(run.id), "course_id": str(course.id)},
+                    )
         if manifest is not None:
             course.manifest = manifest
             course.title = manifest.get("title", course.title)

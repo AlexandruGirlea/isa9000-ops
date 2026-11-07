@@ -15,9 +15,11 @@ body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: col
 .portal-search label { display: block; font-weight: 600; margin-bottom: 8px; }
 .portal-search-controls { display: flex; gap: 8px; }
 .portal-search input { flex: 1; min-width: 0; min-height: 44px; padding: 10px 14px; border: 1px solid var(--card-border); border-radius: 8px; background: var(--card-bg); color: var(--text); }
-.portal-search button { border: 1px solid var(--card-border); border-radius: 8px; padding: 8px 14px; background: var(--card-bg); color: var(--text); }
+.portal-search :is(button, a) { border: 1px solid var(--card-border); border-radius: 8px; padding: 8px 14px; background: var(--card-bg); color: var(--text); text-decoration: none; display: inline-flex; align-items: center; }
 .portal-search p { color: var(--text-muted-custom); font-size: .85rem; margin: 8px 0 0; }
-#catalog-cards > [hidden] { display: none; }
+.catalog-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 16px; margin-top: 32px; }
+.portal-notice { max-width: 72ch; margin: 0 0 24px; padding: 14px 18px; border: 1px solid var(--card-border); border-radius: 8px; background: var(--card-bg); }
+.portal-notice p { margin: 0; overflow-wrap: anywhere; }
 .portal-breadcrumb { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; font-size: .9rem; color: var(--text-muted-custom); }
 .portal-breadcrumb a { color: var(--primary); text-decoration: none; }
 .portal-breadcrumb a:hover { text-decoration: underline; }

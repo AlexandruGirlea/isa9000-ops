@@ -10,14 +10,9 @@
 <section class="section signin">
   <img class="signin-logo" src="{{ base_path }}{{ site.logo }}" alt="{{ site.brand }}">
   <h1>{{ site.title }}</h1>
-  {% if dev %}
-  <p>Local demo · simulated sign-in<br>No Microsoft authentication is performed.</p>
-  <form method="post" action="/.auth/login/aad">{{ csrf_input }}<button class="microsoft" type="submit">Enter local demo</button></form>
-  {% else %}
   <a class="microsoft" href="/.auth/login/aad?post_login_redirect_uri=/libraries/">
     <svg width="21" height="21" viewBox="0 0 21 21" aria-hidden="true"><path fill="#f25022" d="M0 0h10v10H0z"/><path fill="#7fba00" d="M11 0h10v10H11z"/><path fill="#00a4ef" d="M0 11h10v10H0z"/><path fill="#ffb900" d="M11 11h10v10H11z"/></svg>
     Sign in with Microsoft
   </a>
-  {% endif %}
 </section>
 {% endblock %}

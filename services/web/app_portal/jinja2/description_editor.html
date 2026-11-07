@@ -1,3 +1,5 @@
+{# Vditor would otherwise fetch this file and run it as an inline script, which the CSP blocks. #}
+<script src="/static/vendor/vditor/dist/js/icons/ant.js" id="vditorIconScript"></script>
 <script src="/static/vendor/vditor/dist/index.min.js"></script>
 <script nonce="{{ request.csp_nonce }}">
 (() => {
@@ -25,7 +27,7 @@
   editor = new Vditor(mount, {
     cdn: '/static/vendor/vditor', lang: 'en_US', mode: 'wysiwyg',
     theme: dark() ? 'dark' : 'classic', value: '',
-    placeholder: 'What will listeners learn? Add useful links and reference material.',
+    placeholder: field.dataset.descriptionPlaceholder,
     height: 420, minHeight: 240, cache: { enable: false },
     counter: { enable: true, max: input.maxLength }, resize: { enable: true },
     toolbarConfig: { pin: false },

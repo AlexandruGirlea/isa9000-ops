@@ -34,6 +34,8 @@ jobs:
       PULUMI_BACKEND_URL: ${{ vars.PULUMI_BACKEND_URL }}
       STACK_CONFIG: ${{ vars.PULUMI_STACK_CONFIG }}
       AZURE_STORAGE_ACCOUNT: ${{ vars.AZURE_STORAGE_ACCOUNT }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       ARM_USE_OIDC: "true"
       ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
@@ -49,6 +51,8 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58
+      - name: Supply the workload identity to the Pulumi state backend
+        run: python .github/azure_token.py
       - name: Deploy
         working-directory: infra
         run: |
@@ -70,9 +74,11 @@ jobs:
       - name: Smoke test
         working-directory: infra
         run: |
-          python ../.github/smoke.py \
-            "$(pulumi stack output webUrl)" \
-            "$(pulumi stack output resourceGroup)" \
-            "$(pulumi stack output webAppName)" \
-            "$(pulumi stack output ingress)" \
-            "$(pulumi stack output imageTag)"
+          # Each pulumi process exchanges this file again; the token from before a long deploy expired.
+          python ../.github/azure_token.py
+          web_url=$(pulumi stack output webUrl)
+          resource_group=$(pulumi stack output resourceGroup)
+          web_app=$(pulumi stack output webAppName)
+          ingress=$(pulumi stack output ingress)
+          image_tag=$(pulumi stack output imageTag)
+          python ../.github/smoke.py "$web_url" "$resource_group" "$web_app" "$ingress" "$image_tag"

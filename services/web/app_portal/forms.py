@@ -102,9 +102,18 @@ class GenerationForm(forms.Form):
         return cleaned
 
 
+class ContactForm(forms.Form):
+    # The editor hides this field, so a browser "required" check could never be answered.
+    use_required_attribute = False
+    description = forms.CharField(
+        max_length=10000, label="Your request",
+        widget=forms.Textarea(attrs={"rows": 5, "aria-describedby": "description-help"}),
+    )
+
+
 class CreateForm(GenerationForm):
     title = forms.CharField(
-        max_length=80, label="Podcast title",
+        max_length=80, label="Podcast title", required=False,
         widget=forms.TextInput(attrs={
             "placeholder": "For example: Getting started with our team",
             "aria-describedby": "title-help",
@@ -138,7 +147,9 @@ class CreateForm(GenerationForm):
     uploads = UploadField(
         required=False, widget=UploadWidget(attrs={"accept": ".pdf,.txt,.md,.html"})
     )
-    follow_links = forms.BooleanField(required=False, label="Also read linked pages")
+    follow_links = forms.BooleanField(
+        required=False, label="Also read pages linked from these URLs",
+    )
     text_only = forms.BooleanField(
         required=False, initial=True, label="Review transcripts before recording",
     )

@@ -26,8 +26,8 @@ from shared import telemetry
 def excluded(path):
     return (
         path in {
-            "/", "/index.html", "/healthz", "/.auth/login/aad", "/.auth/logout",
-            "/auth/login/aad/callback",
+            "/", "/index.html", "/healthz", "/.auth/login/aad",
+            "/auth/login/aad/callback", sessions.SIGNED_OUT,
         }
         or path.startswith("/static/")
         or re.fullmatch(r"/internal/runs/[0-9a-fA-F-]{36}/[a-z]+", path) is not None
@@ -77,11 +77,14 @@ class RequestMiddleware:
                 action = "admin.access" if request.path.startswith("/admin/") else "http.request"
                 response = self.get_response(request)
                 response["X-Correlation-Id"] = request.correlation_id
+                origin = f"{request.scheme}://{request.get_host()}"
+                # Django's admin JavaScript needs its own translation catalogue to run.
+                catalogue = f" {origin}/admin/jsi18n/" if request.path.startswith("/admin/") else ""
                 response.setdefault(
                     "Content-Security-Policy",
                     "default-src 'self'; "
                     f"script-src 'nonce-{request.csp_nonce}' "
-                    f"{request.scheme}://{request.get_host()}/static/; script-src-attr 'none'; "
+                    f"{origin}/static/{catalogue}; script-src-attr 'none'; "
                     "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
                     "connect-src 'self'; media-src 'self'; font-src 'self'; "
                     "object-src 'none'; frame-src 'none'; base-uri 'none'; "
@@ -126,11 +129,8 @@ class IdentityMiddleware:
         if sessions.expired(request.session):
             return sessions.signin_required(request, expired=True)
         try:
-            if settings.AUTH_MODE in {"dev", "entra"}:
-                if settings.AUTH_MODE == "entra":
-                    from core.entra import identity
-                else:
-                    from core.dev import identity
+            if settings.AUTH_MODE == "entra":
+                from core.entra import identity
 
                 person = identity(request)
                 if not person:
@@ -147,25 +147,11 @@ class IdentityMiddleware:
         except jwt.ExpiredSignatureError:
             return sessions.signin_required(request, expired=True)
         except (ValueError, TypeError, KeyError, AttributeError, jwt.PyJWTError,
-                requests.RequestException) as error:
-            if str(error) == "Your sign-in has no library groups.":
-                return error_page(
-                    request, 403, "Your sign-in has no library groups. "
-                    "Ask your administrator to assign groups to this app.",
-                )
+                requests.RequestException):
             return error_page(request, 403, "Your sign-in could not be verified.")
         request.audit_actor_id = oid
         trace.get_current_span().set_attribute("enduser.id", oid)
-        superuser = (
-            not person.get("local_test") and bool(settings.ADMIN_GROUP_ID)
-            and settings.ADMIN_GROUP_ID in {str(group) for group in groups}
-        )
-        attributes = {
-            "first_name": person["name"][:150],
-            "email": person["email"][:254],
-            "is_superuser": superuser,
-            "is_staff": superuser,
-        }
+        attributes = {"first_name": person["name"][:150], "email": person["email"][:254]}
         user, _ = get_user_model().objects.get_or_create(
             username=oid,
             defaults={**attributes, "password": make_password(None)},
@@ -175,6 +161,27 @@ class IdentityMiddleware:
             return error_page(
                 request, 403, "Your account is inactive. Contact your administrator."
             )
+        if request.session.get("session_oid") != oid:
+            if settings.AUTH_MODE == "easyauth":
+                request.session.flush()
+            sessions.start(request.session, oid, request=request)
+        if settings.GRAPH_GROUPS and person.get("membership") == "overage":
+            from core.entra import graph_groups
+
+            listed = graph_groups(request, person)
+            if listed is not None:
+                groups = {uuid.UUID(value) for value in listed}
+                person["membership"] = "complete"
+        profile, _ = Profile.objects.get_or_create(user=user)
+        user.profile = profile
+        superuser = not person.get("local_test") and (
+            profile.local_admin
+            or (
+                bool(settings.ADMIN_GROUP_ID)
+                and settings.ADMIN_GROUP_ID in {str(group) for group in groups}
+            )
+        )
+        attributes.update(is_superuser=superuser, is_staff=superuser)
         changed = []
         for key, value in attributes.items():
             if getattr(user, key) != value:
@@ -185,14 +192,17 @@ class IdentityMiddleware:
             changed.append("password")
         if changed:
             user.save(update_fields=changed)
-        if request.session.get("session_oid") != oid:
-            if settings.AUTH_MODE == "easyauth":
-                request.session.flush()
-            sessions.start(request.session, oid, request=request)
-        profile, _ = Profile.objects.get_or_create(user=user)
-        if set(profile.groups.values_list("pk", flat=True)) != groups:
+        membership = person.get("membership", "complete")
+        if profile.membership != membership:
+            profile.membership = membership
+            profile.save(update_fields=["membership"])
+            telemetry.audit("auth.membership", actor_id=oid, state=membership)
+        user.directory_groups = groups if membership == "complete" else set()
+        if membership == "complete" and set(profile.groups.values_list("pk", flat=True)) != groups:
+            # New groups stay hidden until an administrator enables them.
             EntraGroup.objects.bulk_create(
-                [EntraGroup(object_id=group) for group in groups], ignore_conflicts=True,
+                [EntraGroup(object_id=group, name=str(group)) for group in sorted(groups)],
+                ignore_conflicts=True,
             )
             profile.groups.set(groups)
         now = timezone.now()
@@ -207,7 +217,7 @@ class IdentityMiddleware:
             request.headers.get("Accept") != "application/json" or request.method != "GET"
         ):
             now = time.time()
-            if now - request.session["last_activity"] >= 60:
+            if now - request.session.get("last_activity", now) >= 60:
                 request.session["last_activity"] = now
                 request.session.set_expiry(max(
                     1, int(request.session["signed_in_at"] + settings.SESSION_MAX_AGE - now),

@@ -23,3 +23,9 @@
   .portal-links { order: 1; flex-basis: 100%; flex-wrap: wrap; margin: 0; gap: 4px 16px; }
   .portal-links i { display: none; }
 }
+.portal-confirm { width: min(440px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--card-border); border-radius: 12px; background: var(--card-bg); color: var(--text); }
+.portal-confirm::backdrop { background: rgba(12, 10, 24, .65); }
+.portal-confirm p { margin: 0 0 20px; }
+.portal-confirm div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.portal-confirm button { min-height: 44px; padding: 8px 16px; border: 1px solid var(--card-border); border-radius: 8px; background: transparent; color: inherit; font-weight: 600; }
+.portal-confirm .portal-confirm-action { border-color: #c53f36; background: #c53f36; color: #fff; }
