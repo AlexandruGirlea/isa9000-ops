@@ -12,6 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DJANGO_SETTINGS_MODULE=core.settings \
     ISA9000_CONFIG=/config/isa9000.toml
 
+# The Python image can lag Debian's security fixes, and the release scan blocks on them.
+RUN apt-get update && apt-get upgrade --yes && rm -rf /var/lib/apt/lists/*
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --create-home app
 COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md /usr/share/licenses/isa9000-ops/
 COPY LICENSES/ /usr/share/licenses/isa9000-ops/LICENSES/

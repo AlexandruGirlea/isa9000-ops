@@ -49,6 +49,8 @@
   `bootstrap.sh` trusts the OIDC subject GitHub actually issues, the workflows supply the
   federated token Pulumi's Azure Blob backend needs, including after long deployments, and the stack no longer tries to
   assign a role on a Foundry account outside its resource group.
+- The image now installs Debian's latest security updates when it is built, including the zlib
+  fix for CVE-2026-85091.
 
 ## 0.1.0
 
