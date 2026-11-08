@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+- `pulumi destroy` no longer stops at the PostgreSQL TLS settings. Azure rejects the provider's
+  reset of a server parameter, so the stack now leaves both parameters on the server, which
+  removes them when it is deleted.
+- Log alerts are created after the Container Apps environment, so a first deployment no longer
+  fails when Azure briefly reports the new log workspace as missing.
+
 ## 0.1.1
 
 - **Upgrade note:** groups no longer become libraries by themselves. On upgrade, groups that

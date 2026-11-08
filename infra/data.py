@@ -216,6 +216,7 @@ database_schema = dbforpostgresql.Database(
     opts=pulumi.ResourceOptions(depends_on=[database_access]),
 )
 # Azure rejects concurrent changes to one server with ServerIsBusy.
+# Azure rejects the provider's reset on delete, so keep parameters; they go with the server.
 database_ready = database_schema
 for parameter, value in (
     ("require_secure_transport", "ON"),
@@ -228,7 +229,7 @@ for parameter, value in (
         configuration_name=parameter,
         value=value,
         source="user-override",
-        opts=pulumi.ResourceOptions(depends_on=[database_ready]),
+        opts=pulumi.ResourceOptions(depends_on=[database_ready], retain_on_delete=True),
     )
 database_url = pulumi.Output.all(
     database_password.result, database.fully_qualified_domain_name
