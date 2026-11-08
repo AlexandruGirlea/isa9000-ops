@@ -77,7 +77,7 @@ wheels = [
 
 [[package]]
 name = "isa9000-infra"
-version = "0.1.1"
+version = "0.1.2"
 source = { virtual = "." }
 dependencies = [
     { name = "pulumi" },
