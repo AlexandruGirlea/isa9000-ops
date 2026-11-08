@@ -110,6 +110,8 @@ for name, (query, window, threshold) in queries.items():
             ]
         },
         **data.common,
+        # Azure can report a just-created workspace as missing; the environment takes minutes.
+        opts=pulumi.ResourceOptions(depends_on=[s.app_environment]),
     )
 consumption.Budget(
     "budget",
