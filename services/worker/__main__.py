@@ -33,7 +33,10 @@ def main() -> int:
             return 0
         message = messages[0]
         with telemetry.attach(message.application_properties or {}):
-            with trace.get_tracer(__name__).start_as_current_span("worker task"):
+            with (
+                trace.get_tracer(__name__).start_as_current_span("worker task"),
+                AutoLockRenewer() as renewer,
+            ):
                 try:
                     run_id = str(UUID(str(message.message_id)))
                     task = payloads.decrypt(json.loads(str(message)), f"task:{run_id}")
@@ -48,19 +51,21 @@ def main() -> int:
                         "operation_correlation_id": task["correlation_id"],
                     }
                     telemetry.audit("worker.received", **fields)
-                    with AutoLockRenewer() as renewer:
-                        renewer.register(receiver, message, max_lock_renewal_duration=300)
-                        accepted = callbacks.post("accept", {})["accepted"]
-                        receiver.complete_message(message)
-                        telemetry.audit(
-                            "worker.accepted", outcome="success" if accepted else "ignored",
-                            **fields,
-                        )
+                    # The job scaler counts locked messages, so hold this one until the task ends.
+                    renewer.register(receiver, message, max_lock_renewal_duration=7200)
+                    accepted = callbacks.post("accept", {})["accepted"]
+                    telemetry.audit(
+                        "worker.accepted", outcome="success" if accepted else "ignored",
+                        **fields,
+                    )
                 except Exception:
                     logger.error("Could not accept the task.")
                     receiver.abandon_message(message)
                     return 1
-                return run_task(task, callbacks) if accepted else 0
+                try:
+                    return run_task(task, callbacks) if accepted else 0
+                finally:
+                    receiver.complete_message(message)
 
 
 if __name__ == "__main__":

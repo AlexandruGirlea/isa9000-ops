@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.1.4
+
+- Queued podcasts run in parallel, up to the worker limit: a worker keeps its task's queue
+  message locked until the task ends, so a running task no longer holds back the next one.
+- A run that takes longer than 110 minutes is stopped and reported as failed before the job's
+  2-hour limit ends the worker.
+- Worker executions now exit as soon as their task ends. They used to hang until the job's
+  2-hour timeout, and a hung execution held back the next queued podcast.
+- Azure SDK logs below WARNING are no longer exported. The exporter's own upload messages had
+  been exported again in an endless loop, sending several log records a second.
+- isa9000 0.3.2: source checks judge only the link given, so a site that answers unknown pages
+  with its home page is no longer rejected; following links also reads the same site's other
+  subdomains; a followed page with too little text is skipped instead of failing the run.
+- With "Review transcripts before recording" unticked, a podcast is recorded even when isa9000
+  asks for review; when a run does stop for review, its page shows isa9000's reason.
+- Retrying a failed podcast lets you change "Review transcripts before recording".
+- A podcast's Manage page shows the prompt it was created from.
+- The follow-links hint says 25 linked pages in total, from the same site and its subdomains.
+- A release from a private repository owned by a user, where GitHub cannot store attestations,
+  skips attesting its image instead of reporting an error. Elsewhere the release still attests
+  the image, and continues without an attestation where GitHub refuses one.
+- The workflows use GitHub Actions releases that run on Node.js 24, which replaces the
+  deprecated Node.js 20.
+- `bootstrap.sh` stops before calling GitHub or Azure when the repository, storage account or
+  registry name is invalid, also under Bash 3.2, the macOS default.
+- The docs show how to grant yourself access to an environment's Pulumi state and how to add the
+  callback to an existing sign-in registration through Microsoft Graph. They also note that dev
+  and test start the web app cold after idle unless `isa9000:webMinReplicas` is 1, and that
+  Azure Monitor sends no alert emails until the alert address is verified.
+
 ## 0.1.3
 
 - A company copy can build its own image. Pass a registry name to `bootstrap.sh` as a sixth

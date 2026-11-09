@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import traceback
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -24,6 +25,8 @@ from worker.render import render_course
 
 HEARTBEAT_SECONDS = 60
 STOP_TIMEOUT = 10
+# Ends a stuck run before the job's 7200-second replica timeout, leaving time to report it.
+TASK_SECONDS = 6600
 logger = telemetry.log(__name__)
 
 
@@ -45,6 +48,7 @@ class Run:
         self.cancelled = threading.Event()
         self.finished = threading.Event()
         self.heartbeat_error: Exception | None = None
+        self.timed_out = False
         self.error = ""
         self.stderr = ""
         self.saved_early = False
@@ -83,8 +87,13 @@ class Run:
             self.stop_process()
 
     def heartbeat(self, properties: dict) -> None:
+        deadline = time.monotonic() + TASK_SECONDS
         with telemetry.attach(properties):
             while not self.finished.wait(HEARTBEAT_SECONDS):
+                if time.monotonic() > deadline:
+                    self.timed_out = True
+                    self.stop_process()
+                    return
                 try:
                     self.progress({"stage": "heartbeat"})
                 except Exception as error:
@@ -150,12 +159,12 @@ class Run:
             if line.strip():
                 self.stderr = line.strip().removeprefix("isa9000: ")
 
-    def cli(self, sources: list[str], config_path: str) -> int:
+    def cli(self, sources: list[str], config_path: str, record: bool = False) -> int:
         command = shlex.split(os.environ.get("ISA9000_CLI", "")) or [
             sys.executable, "-m", "worker.cli"
         ]
         command += ["--progress", "json", "--config", config_path]
-        if self.task["task"] == "create":
+        if self.task["task"] == "create" and not record:
             request = self.task["request"]
             if self.title:
                 request += "\n\nUse this exact podcast title: " + json.dumps(self.title)
@@ -280,6 +289,10 @@ class Run:
             if not self.cancelled.is_set() and not self.heartbeat_error:
                 if self.task["task"] != "render":
                     code = self.cli(sources, config_path)
+                # Without a requested review, record past isa9000's own quality gate.
+                if (code == 3 and self.task["task"] == "create" and not self.task.get("text_only")
+                        and self.folder and not self.cancelled.is_set()):
+                    code = self.cli(sources, config_path, record=True)
             if self.heartbeat_error:
                 raise self.heartbeat_error
             if self.cancelled.is_set():
@@ -291,7 +304,8 @@ class Run:
                     else "ready"
                 )
             elif code == 3:
-                result["state"] = "needs_review"
+                reason = self.stderr.partition("review before recording: ")[2]
+                result.update(state="needs_review", error=reason.partition(". Read the")[0])
             else:
                 result.update(error=self.error or self.stderr or f"isa9000 exited with {code}.",
                               error_source="isa9000")
@@ -323,6 +337,9 @@ class Run:
         if self.heartbeat_error and result["error_source"] != "worker":
             result.update(state="failed", html=None, error_source="worker",
                           error="The progress callback failed.")
+        if self.timed_out and result["error_source"] != "worker":
+            result.update(state="failed", html=None, error_source="worker",
+                          error="The task took longer than the time limit.")
         if self.cancelled.is_set() and result["error_source"] != "worker":
             result.update(state="stopped", html=None, error="", error_source="")
         result["manifest"] = None if self.cancelled.is_set() else self.manifest
