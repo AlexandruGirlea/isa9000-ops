@@ -15,6 +15,7 @@
 {% if active_run %}<section class="card run-callout"><div><h2>{{ 'Recording your approved transcripts' if active_run.task == 'record' else 'A run is in progress' }}</h2><p class="hint">{{ 'Audio will be published to this library when recording finishes.' if active_run.task == 'record' else 'Follow progress while isa9000 works on this podcast.' }}</p></div><a class="button-link" href="/runs/{{ active_run.id }}/">Follow progress <i class="bi bi-arrow-right" aria-hidden="true"></i></a></section>
 {% elif course.status == 'needs_review' %}{% include "review_actions.html" %}{% endif %}
 <div class="workspace-grid">
+  {% if prompt %}<section class="card"><h2>Prompt</h2><p>{{ prompt }}</p></section>{% endif %}
   <section class="card" id="episodes"><div class="card-head"><h2>Episodes</h2><span class="hint">{{ episodes|length }} {{ 'episode' if episodes|length == 1 else 'episodes' }}</span></div>
     <p class="hint">Open each transcript to read or edit its wording. Edits need approval before new audio is recorded.{% if active %} Editing is locked while this run is in progress.{% endif %}</p>
     {% for episode in episodes %}<article class="ep">

@@ -93,7 +93,8 @@ def setup(service: str) -> None:
     root.setLevel(logging.INFO)
     for handler in root.handlers:
         handler.addFilter(_ContextFilter())
-    logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+    # The exporter logs each upload at INFO, and exporting those logs never ends.
+    logging.getLogger("azure").setLevel(logging.WARNING)
     _setup_pids.add(os.getpid())
 
 
@@ -157,6 +158,7 @@ def audit(
 def flush() -> None:
     from opentelemetry._logs import get_logger_provider
 
+    # force_flush loops while new records keep arriving; shutdown stops accepting them.
     for provider in (get_logger_provider(), trace.get_tracer_provider()):
-        if force_flush := getattr(provider, "force_flush", None):
-            force_flush(timeout_millis=5000)
+        if shutdown := getattr(provider, "shutdown", None):
+            shutdown()

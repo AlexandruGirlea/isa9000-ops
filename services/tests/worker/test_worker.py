@@ -107,7 +107,7 @@ def test_stub_outcomes(code, state, title, monkeypatch, task, local_worker, capl
     result = recorder.result
     assert result["state"] == state
     assert task["request"] not in caplog.text
-    command = start.call_args.args[0]
+    command = start.call_args_list[0].args[0]
     prompt = command[command.index("--request") + 1]
     assert prompt == task["request"] + (
         "\n\nUse this exact podcast title: " + json.dumps(title) if title else ""
@@ -287,7 +287,7 @@ def test_one_shot_accept_complete_or_abandon(accepted, monkeypatch, task):
     monkeypatch.setattr(entrypoint, "Callbacks", lambda _: callback)
     renewer = MagicMock()
     monkeypatch.setattr(entrypoint, "AutoLockRenewer", renewer)
-    run = MagicMock(side_effect=lambda *_: 0 if receiver.complete_message.called else 9)
+    run = MagicMock(side_effect=lambda *_: 9 if receiver.complete_message.called else 0)
     monkeypatch.setattr(entrypoint, "run_task", run)
     assert entrypoint.main() == (1 if accepted is None else 0)
     receiver.receive_messages.assert_called_once_with(max_message_count=1, max_wait_time=30)

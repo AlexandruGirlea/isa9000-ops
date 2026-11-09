@@ -470,6 +470,14 @@ assigned to it can sign in. For `isa9000:graphGroups`, see
 [group overage](#group-overage). Use a separate registration
 per environment. The local callback is different.
 
+Add the Azure callback in the portal or through Microsoft Graph. On a registration with several
+URIs, `az ad app update --web-redirect-uris` can fail with "One or more properties contains
+invalid values"; patch `web.redirectUris` instead, listing every URI to keep:
+
+```bash
+az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications(appId='YOUR-CLIENT-ID')" --body '{"web":{"redirectUris":["https://YOUR-APP-HOST/.auth/login/aad/callback","https://YOUR-OTHER-URI"]}}'
+```
+
 For PR previews, create a protected GitHub environment named `preview` with a
 required reviewer. After configuring it, set the repository-level variable
 `ENABLE_AZURE_PREVIEW=true`; previews are skipped by default in a new checkout.
