@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'AlexandruGirlea/isa9000-ops'
+    if: github.repository == 'AlexandruGirlea/isa9000-ops' || vars.AZURE_CONTAINER_REGISTRY != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -63,6 +63,7 @@ jobs:
 
   image:
     needs: build
+    if: github.repository == 'AlexandruGirlea/isa9000-ops'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -117,40 +118,88 @@ jobs:
           push-to-registry: true
           create-storage-record: false
 
+  registry:
+    needs: build
+    if: github.repository != 'AlexandruGirlea/isa9000-ops'
+    environment: dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      image_tag: ${{ steps.publish.outputs.digest }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: services-image
+          path: ${{ runner.temp }}
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Publish the tested image
+        id: publish
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]
+          [[ "$REGISTRY" =~ ^[a-z0-9]{5,50}$ ]]
+          docker load -i "$RUNNER_TEMP/services.tar"
+          az acr login --name "$REGISTRY"
+          image="$REGISTRY.azurecr.io/isa9000-ops:$version"
+          docker tag services:production "$image"
+          docker push "$image"
+          digest=$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')
+          echo "digest=${digest#*@}" >> "$GITHUB_OUTPUT"
+      # Private repositories get attestations only on GitHub Enterprise Cloud.
+      - name: Attest the published image
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ${{ vars.AZURE_CONTAINER_REGISTRY }}.azurecr.io/isa9000-ops
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
   dev:
-    needs: [build, image, attest]
+    needs: [build, registry]
     if: >-
       always() && github.repository != 'AlexandruGirlea/isa9000-ops' &&
-      (needs.build.result == 'skipped' || needs.attest.result == 'success')
+      (needs.build.result == 'skipped' || needs.registry.result == 'success')
     uses: ./.github/workflows/deploy-stack.yml
     permissions:
       contents: read
       id-token: write
     with:
       environment: dev
-      image_tag: ${{ needs.image.outputs.image_tag }}
+      image_tag: ${{ needs.registry.outputs.image_tag }}
     secrets: inherit
 
   test:
-    needs: [image, dev]
-    if: always() && needs.dev.result == 'success'
+    needs: [registry, dev]
+    if: always() && needs.dev.result == 'success' && vars.LAST_ENVIRONMENT != 'dev'
     uses: ./.github/workflows/deploy-stack.yml
     permissions:
       contents: read
       id-token: write
     with:
       environment: test
-      image_tag: ${{ needs.image.outputs.image_tag }}
+      image_tag: ${{ needs.registry.outputs.image_tag }}
     secrets: inherit
 
   prod:
-    needs: [image, test]
-    if: always() && needs.test.result == 'success'
+    needs: [registry, test]
+    if: always() && needs.test.result == 'success' && vars.LAST_ENVIRONMENT != 'test'
     uses: ./.github/workflows/deploy-stack.yml
     permissions:
       contents: read
       id-token: write
     with:
       environment: prod
-      image_tag: ${{ needs.image.outputs.image_tag }}
+      image_tag: ${{ needs.registry.outputs.image_tag }}
     secrets: inherit

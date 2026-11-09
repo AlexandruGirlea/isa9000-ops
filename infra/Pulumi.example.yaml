@@ -8,6 +8,9 @@ config:
   isa9000:createResourceGroup: false
   isa9000:ingress: public
   isa9000:imageTag: "sha256:YOUR-PUBLISHED-IMAGE-DIGEST"
+  # To deploy the images your releases build, set the registry ID bootstrap printed (docs/azure.md).
+  # Releases then set imageTag to the digest they built.
+  # isa9000:registry: /subscriptions/YOUR-SUBSCRIPTION-ID/resourceGroups/YOUR-STATE-RESOURCE-GROUP/providers/Microsoft.ContainerRegistry/registries/YOURREGISTRY
   isa9000:alertEmail: audio-operations@example.com
   isa9000:authApp: create
   isa9000:groupClaims: SecurityGroup
