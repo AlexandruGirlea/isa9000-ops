@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.3
+
+- A company copy can build its own image. Pass a registry name to `bootstrap.sh` as a sixth
+  argument to create a shared Azure Container Registry, then set the repository variable
+  `AZURE_CONTAINER_REGISTRY` and `isa9000:registry` in every stack. Each release then builds,
+  tests and scans the image, pushes it to that registry and deploys the same digest to dev, test
+  and prod. The web app, worker and watchdog pull it with their managed identities (AcrPull);
+  the registry has no admin user or password. Existing installations that adopt it run only the
+  registry commands from `bootstrap.sh`. While Azure applies the new AcrPull grants, an
+  environment's first deployment from the registry can fail to pull the image; rerun the failed
+  job. Without a registry, the published image is used as before.
+- The release attests a company-built image where GitHub allows it. Private repositories need
+  GitHub Enterprise Cloud for attestations; without it, the release continues unattested.
+- A release can stop after dev or test: set the repository variable `LAST_ENVIRONMENT` to `dev`
+  or `test`, and the later environments show as skipped instead of failing. Unset, a release
+  deploys dev, test and prod as before.
+- `bootstrap.sh` can set up fewer environments: `ENVIRONMENTS=dev`, for example, creates only
+  dev's resource group, state container and identity. The default is `dev test prod preview`;
+  dev is required, and prod needs test. `REGISTRY_SKU` chooses the registry tier: `Basic`,
+  `Standard` (the default) or `Premium`.
+
 ## 0.1.2
 
 - `pulumi destroy` no longer stops at the PostgreSQL TLS settings. Azure rejects the provider's

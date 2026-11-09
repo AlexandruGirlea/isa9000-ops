@@ -57,6 +57,10 @@ def identity(resource):
     }
 
 
+def registries(resource):
+    return [{"server": s.registry_server, "identity": resource.id}] if s.registry_server else None
+
+
 def variables(values, secrets):
     return [{"name": key, "value": value} for key, value in values.items()] + [
         {"name": key, "secret_ref": value} for key, value in secrets.items()
@@ -146,6 +150,7 @@ web = app.ContainerApp(
     configuration={
         "active_revisions_mode": "Single",
         "secrets": web_secrets,
+        "registries": registries(data.web_identity),
         "ingress": {
             "external": True,
             "target_port": 8000,
@@ -255,6 +260,7 @@ worker = app.Job(
         "replica_timeout": 7200,
         "replica_retry_limit": 0,
         "secrets": worker_secrets,
+        "registries": registries(data.worker_identity),
         "event_trigger_config": {
             "parallelism": 1,
             "replica_completion_count": 1,
@@ -323,6 +329,7 @@ watchdog = app.Job(
             "replica_completion_count": 1,
         },
         "secrets": credential_refs["watchdog"],
+        "registries": registries(data.watchdog_identity),
     },
     template={
         "containers": [

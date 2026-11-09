@@ -28,6 +28,7 @@ jobs:
     env:
       STACK: ${{ inputs.environment }}
       IMAGE_TAG: ${{ inputs.image_tag }}
+      REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY }}
       ADMIN_GROUP_ID: ${{ secrets.ADMIN_GROUP_ID }}
       AUTH_CLIENT_SECRET: ${{ secrets.AUTH_CLIENT_SECRET }}
       PULUMI_CONFIG_PASSPHRASE: ${{ secrets[format('PULUMI_{0}_CONFIG_PASSPHRASE', inputs.environment)] }}
@@ -67,6 +68,10 @@ jobs:
           if [ -n "$AUTH_CLIENT_SECRET" ]; then
             pulumi config set --secret --path 'isa9000:authApp.clientSecret' "$AUTH_CLIENT_SECRET"
           fi
+          registry=$(pulumi config get isa9000:registry 2>/dev/null || true)
+          registry=$(printf '%s' "${registry##*/}" | tr '[:upper:]' '[:lower:]')
+          # A stack with a registry deploys only the image this release pushed there.
+          test "$registry" = "${IMAGE_TAG:+$REGISTRY}"
           if [ -n "$IMAGE_TAG" ]; then
             pulumi config set isa9000:imageTag "$IMAGE_TAG"
           fi

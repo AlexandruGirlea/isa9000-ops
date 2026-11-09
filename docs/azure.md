@@ -14,15 +14,14 @@ address; they will not use GitHub or install the software themselves.
 **The current supported starting point is an Azure pilot on a Container Apps
 HTTPS address.** Azure application deployment is not yet validated end to end.
 
-Two prerequisites must be satisfied before treating this as a production recipe:
+Company-domain production onboarding must be completed before treating this as a
+production recipe. Custom domains, supplied certificates, internal ingress and
+private Postgres networking are not yet supported by the provisioning code.
 
-- A source release and the matching **published, pullable container image digest**
-  must be available. The deployment currently uses
-  `ghcr.io/alexandrugirlea/isa9000-ops`; a company copy does not build its own
-  image in the release workflow.
-- Company-domain production onboarding must be completed. Custom domains,
-  supplied certificates, internal ingress and private Postgres networking are
-  not yet supported by the provisioning code.
+The deployment uses the published `ghcr.io/alexandrugirlea/isa9000-ops` image by
+default. A company copy can instead build, test and scan its own image in its
+release workflow and deploy it from its own Azure Container Registry; see
+[step 3](#3-bootstrap-azure-deployment-access).
 
 Deployments use Azure HTTPS ingress and certificates. The production Container
 Apps VNet supports zone redundancy; it does not provide a WAF or private endpoints
@@ -126,7 +125,8 @@ IT needs:
 - Permission to create resources and role assignments for the one-time bootstrap.
 - An Entra administrator for sign-in registration and group configuration.
 - An application administrator group, pilot-team groups and a pilot creator.
-- The approved container digest, such as `sha256:…`, from the image publisher.
+- The approved container digest, such as `sha256:…`, from the image publisher, or a
+  registry name if your releases build the image.
 
 Decide who owns retention, alerts, backup/recovery and application updates.
 Azure hosting, storage and model usage are paid through your organization's
@@ -176,6 +176,11 @@ digest. New Foundry provisioning is also supported with `foundry: create`,
 but each model entry then additionally requires its model/version/format/SKU/
 capacity from the AI platform team.
 
+To deploy the image your releases build, add to every environment the
+`isa9000:registry` value that bootstrap prints (step 3), the registry's resource ID.
+The release then sets `imageTag` to the digest it built; keep the last deployed
+digest in `imageTag` so previews match. Without `registry`, the published image is used.
+
 Files in `infra/tests/stacks/` are mocked test fixtures using the same recommended
 model names. Their versions, SKUs and capacities are synthetic; start real
 deployments from `infra/Pulumi.example.yaml` and your platform team's settings.
@@ -206,6 +211,14 @@ This **creates Azure resources and role assignments**: private Pulumi state
 storage, three deployment identities and a preview identity. It prints their
 IDs and backend settings. The repository argument must name your company copy.
 
+To set up only some environments, list them in `ENVIRONMENTS`, for example
+`ENVIRONMENTS=dev` for a trial or `ENVIRONMENTS="dev test"`; the default is
+`dev test prod preview`. Dev is required: releases start there, its identity pushes
+images, and preview reads its state. Prod also needs test, because releases reach prod
+only through test. Bootstrap creates no identity, resource group, state container or
+delete lock for the environments left out. Set `ENVIRONMENTS` again on every rerun,
+listing all the environments you use; without it, a rerun sets up all four.
+
 It first reads that repository's OIDC subject format through `gh api`, because new
 GitHub repositories use subjects containing owner and repository IDs. Sign in with
 `gh auth login`, or set `GITHUB_OIDC_SUBJECT_PREFIX` to the part before
@@ -218,8 +231,26 @@ container. Preview reads only dev state. Bootstrap creates the application resou
 groups first; use their names in stack settings with `createResourceGroup: false`.
 The shared bootstrap resources are retained outside the application stacks.
 
-With `authApp: create`, an Entra administrator must grant the three deployment
-identities Microsoft Graph `Application.ReadWrite.OwnedBy`. Pulumi then creates
+To build the image in your own releases, add a sixth argument: a new, globally unique
+registry name of 5–50 lowercase letters and digits. Bootstrap then also creates a
+Standard Azure Container Registry with its admin user disabled in the state resource
+group, shared by all environments; set `REGISTRY_SKU` to `Basic` for a trial or to
+`Premium` for private endpoints. Pass the registry and `REGISTRY_SKU` again on every
+rerun; without `REGISTRY_SKU`, a rerun changes the registry to Standard.
+The dev deployment identity may push images to it,
+and the dev, test and prod identities may grant only AcrPull on it to service principals.
+Because the registry is shared, each of them can also remove any environment's AcrPull,
+so a compromised dev or test identity could stop prod from pulling new revisions; protect
+all three environments as described in step 4.
+Pulumi grants AcrPull to each environment's web, worker and watchdog identities, which
+pull the image without registry passwords. Bootstrap prints `AZURE_CONTAINER_REGISTRY`
+and the `isa9000:registry` value. For an existing installation, review the registry
+commands in `bootstrap.sh` and run only those. Azure can take a few minutes to apply new
+AcrPull grants, so an environment's first deployment from the registry can fail with an
+image pull authorization error; rerun the failed job.
+
+With `authApp: create`, an Entra administrator must grant each deployment
+identity Microsoft Graph `Application.ReadWrite.OwnedBy`. Pulumi then creates
 a tenant-only sign-in registration with the Azure callback automatically.
 Everyone in the directory, including invited guests, can sign in; libraries still
 depend on their groups. To handle people in too many groups automatically, see
@@ -249,6 +280,11 @@ this also prevents PR-controlled workflows from requesting those environments.
 Require a reviewer for preview. For the first rollout, also require a test reviewer
 so the team can validate dev before promotion. Restrict release-tag creation to maintainers.
 
+Create only the environments you bootstrapped. If you deploy only dev, or dev and test,
+set the repository variable `LAST_ENVIRONMENT` to `dev` or `test` (step 5). Only prod
+has Pulumi deletion protection and a delete lock, so use an installation without prod
+for trials, not for data you must keep.
+
 After configuring the protected preview environment, opt in with the
 repository-level variable `ENABLE_AZURE_PREVIEW=true`. Without it, public CI runs
 its local checks and skips Azure previews.
@@ -266,6 +302,9 @@ Set these values in **each** environment:
 | Secret | `PULUMI_DEV_CONFIG_PASSPHRASE`, `PULUMI_TEST_CONFIG_PASSPHRASE` or `PULUMI_PROD_CONFIG_PASSPHRASE` | Only the matching environment's distinct passphrase |
 | Secret | `ADMIN_GROUP_ID` | Entra administrator group object ID |
 | Secret, if using an existing registration | `AUTH_CLIENT_SECRET` | Its client secret value |
+
+To build your own image, also set the **repository** variable `AZURE_CONTAINER_REGISTRY`
+to the registry name from bootstrap.
 
 Use a different state-encryption passphrase for each environment. When initializing
 a stack locally, use that environment's matching passphrase and backend.
@@ -314,9 +353,17 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 
 Use an unused version, not this example blindly. In a company copy, the workflow
-uses the configured image digest. It deploys dev, runs a smoke check, then
-promotes through test and approved prod. GitHub Actions shows progress and
-the deployment output includes `webUrl`.
+uses the configured image digest. With `AZURE_CONTAINER_REGISTRY` set, it first
+builds the image from the tagged source, runs the tests, vulnerability scan and SBOM,
+pushes it to your registry and uses that digest. It deploys dev, runs a smoke check,
+then promotes the same digest through test and approved prod. With the repository
+variable `LAST_ENVIRONMENT` set to `dev` or `test`, it stops there and shows the later
+environments as skipped. GitHub Actions shows progress and the deployment output
+includes `webUrl`.
+
+The release also attests the build provenance of an image it pushes. GitHub offers
+artifact attestations in private repositories only on GitHub Enterprise Cloud;
+elsewhere that step reports an error and the release continues without one.
 
 Leave the production approval gate closed until company-domain support and the
 acceptance checks below are complete. A passing health endpoint alone is not
@@ -346,7 +393,8 @@ first library. Creators and listeners use the browser; IT maintains the service.
 ## Updates and day-to-day operation
 
 Review a new upstream release, update the pinned image digest in company stack
-settings, and promote it through the same environments. Branding changes travel
+settings, and promote it through the same environments. With your own registry,
+merge the reviewed release into your copy and tag it instead. Branding changes travel
 through the company repository and runtime configuration.
 
 The [operator reference](operator-guide.md) covers access, worker behavior,

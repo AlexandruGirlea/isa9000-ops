@@ -14,7 +14,8 @@ Application code lives in `services/`: `worker/` runs the installed isa9000
 library, `web/` contains Django, and `shared/` provides storage and telemetry.
 The shared image is built from `services/Dockerfile`; its worker command is
 `python -m worker`. The image is `services:local` locally and
-`ghcr.io/alexandrugirlea/isa9000-ops:<version>` for releases.
+`ghcr.io/alexandrugirlea/isa9000-ops:<version>` for releases, or
+`REGISTRY.azurecr.io/isa9000-ops:<version>` when a company copy builds its own.
 The worker installs `isa9000==0.3.0` and invokes its CLI. Django owns users,
 permissions, library navigation, saved runs and podcast HTML.
 
@@ -395,7 +396,9 @@ operators can find the matching spans and audit events.
 ## 8. Releases
 
 One `v*` tag deploys dev, then test, then prod. Prod needs an approver, and it
-can't run unless dev and test passed in the same run.
+can't run unless dev and test passed in the same run. To stop after dev or test, set
+the repository variable `LAST_ENVIRONMENT` to `dev` or `test`; the later environments
+show as skipped.
 
 ```mermaid
 flowchart LR
@@ -406,8 +409,10 @@ flowchart LR
 ```
 
 The upstream tag workflow builds, scans and publishes the image first. An organization's
-copy uses its configured image instead. A failed deployment or check stops promotion;
-production approval requires the GitHub environment protection described below.
+copy uses its configured image, or builds, scans and pushes its own to its Azure Container
+Registry when the repository variable `AZURE_CONTAINER_REGISTRY` is set. A failed deployment
+or check stops promotion; production approval requires the GitHub environment protection
+described below.
 
 ---
 
@@ -480,7 +485,8 @@ providers read resource keys.
 
 The deployment workflow only accepts calls from the tag-triggered release
 workflow. Upstream publishes an image and GitHub build provenance; a company
-copy uses its configured image. GitHub environment protection supplies the
+copy uses its configured image, or builds and pushes its own when the repository
+variable `AZURE_CONTAINER_REGISTRY` is set. GitHub environment protection supplies the
 approval gates. Back up private Pulumi state and its passphrase.
 
 Each stack creates a Key Vault in its own resource group. It stores the database

@@ -72,8 +72,10 @@ flowchart TD
 ```
 
 A company copy uses a published image pinned by digest. The upstream workflow
-builds and publishes it; the company controls when to adopt it. Environment
-reviewers provide approval gates.
+builds and publishes it; the company controls when to adopt it. With its own Azure
+Container Registry, a company copy's release workflow instead builds, tests and scans
+the image, then deploys that digest to every environment. Environment reviewers
+provide approval gates.
 
 The application uses Django and a stateless worker in one image. No separate
 engine deployment, Celery or Redis is required. See the
