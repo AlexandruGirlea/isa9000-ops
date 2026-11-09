@@ -21,11 +21,9 @@ class RuntimeRoleTests(TestCase):
         with patch.dict(os.environ, {"ISA9000_RUNTIME_DATABASE_URL": url}):
             with CaptureQueriesContext(connection) as queries:
                 call_command("migrate_database")
-                call_command("migrate_database")  # A second run updates the role, not fails.
-        # The server logs failed and audited statements in full, so it must never get the password.
+                call_command("migrate_database")
         self.assertEqual([query["sql"] for query in queries if password in query["sql"]], [])
         with connection.cursor() as cursor:
-            # Later migrations create tables as this administrator; the role must reach them too.
             cursor.execute("CREATE TABLE later_table (id serial PRIMARY KEY)")
             cursor.execute(f"SET LOCAL ROLE {ROLE}")
             cursor.execute("INSERT INTO later_table DEFAULT VALUES")

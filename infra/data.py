@@ -102,7 +102,6 @@ vault = keyvault.Vault(
     opts=pulumi.ResourceOptions(protect=s.environment == "prod"),
     **common,
 )
-# Apps read Key Vault secrets when they start, so they also wait for its private endpoint.
 permissions.extend(
     private_endpoint("vault", vault.id, "vault", ["privatelink.vaultcore.azure.net"])
 )
@@ -264,8 +263,6 @@ database = dbforpostgresql.Server(
     opts=pulumi.ResourceOptions(protect=s.environment == "prod"),
     **common,
 )
-# No public access: the apps reach Postgres through a private endpoint in their own VNet.
-# The server keeps its name, so the connection URL does not change.
 database_zone = privatedns.PrivateZone(
     "postgres-dns",
     private_zone_name="privatelink.postgres.database.azure.com",
@@ -340,8 +337,6 @@ def database_connection(user, password):
     )
 
 
-# Only the migration job holds the administrator URL; the apps use the restricted runtime role,
-# which that job creates (services/web/app_portal/management/commands/migrate_database.py).
 database_admin_url = database_connection("isa9000", database_password.result)
 database_url = database_connection("isa9000_app", runtime_password.result)
 callback_secret = random.RandomPassword("callback-secret", length=64, special=False)

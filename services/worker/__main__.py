@@ -72,8 +72,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     if sys.platform == "linux":
-        # PR_SET_DUMPABLE=0: the engine runs as this user, so stop it reading this
-        # process's environment (identity header, callback and payload keys) or memory.
         ctypes.CDLL(None).prctl(4, 0, 0, 0, 0)
     try:
         raise SystemExit(main())

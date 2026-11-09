@@ -92,7 +92,6 @@ class Run:
 
     def refresh_token(self) -> None:
         if self.credential:
-            # CLI startup and the heartbeat can both refresh this file.
             with self.token_lock:
                 temporary = self.token_file.with_suffix(".tmp")
                 temporary.write_text(self.credential.get_token(AZURE_SCOPE).token, encoding="utf-8")

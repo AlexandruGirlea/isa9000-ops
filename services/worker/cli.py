@@ -15,7 +15,6 @@ from worker.source_http import SourceHTTP
 class FoundryToken:
     def get_token(self, *scopes: str, **kwargs: object) -> AccessToken:
         token = Path(os.environ["ISA9000_FOUNDRY_TOKEN_FILE"]).read_text(encoding="utf-8")
-        # Expires early so the client rereads the file, which the worker refreshes every minute.
         return AccessToken(token, int(time.time()) + 360)
 
 

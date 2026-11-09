@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 
-# Caps each DNS lookup in a request thread, such as a source URL check, at about 2 seconds.
 os.environ.setdefault("RES_OPTIONS", "timeout:2 attempts:1")
 
 worker_class = "gthread"

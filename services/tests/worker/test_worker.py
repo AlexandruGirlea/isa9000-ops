@@ -227,7 +227,6 @@ def test_concurrent_foundry_token_refreshes(monkeypatch, task, tmp_path):
 
     def slow_write(path, *args, **kwargs):
         result = write_text(path, *args, **kwargs)
-        # Keep the shared temporary file in place while the other refresh starts.
         time.sleep(0.02)
         return result
 

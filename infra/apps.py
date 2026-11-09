@@ -85,8 +85,6 @@ vault_secrets = {
         tags=s.tags,
     )
     for name, value in {
-        # Preserve the existing administrator secret while old revisions still use it.
-        # A separate runtime secret lets migration finish before workloads switch roles.
         "database": data.database_admin_url,
         "database-runtime": data.database_url,
         "django-key": data.django_secret.result,
@@ -108,7 +106,6 @@ for workload, resource, names in (
     ),
     ("worker", data.worker_identity, ("callback", "payload-key")),
     ("watchdog", data.watchdog_identity, ("database-runtime", "django-key", "admin-group")),
-    # Only this job can read the administrator login.
     ("migrate", data.migrate_identity, ("database", "database-runtime", "django-key")),
 ):
     credential_refs[workload] = []
@@ -135,7 +132,6 @@ web_env = variables(
         "ISA9000_GRAPH_GROUPS": str(s.graph_groups).lower(),
         "ISA9000_ALLOWED_HOSTS": edge.azure_host,
         "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat("https://", edge.azure_host),
-        # Its database role cannot change the schema; the migrate job does that.
         "ISA9000_MIGRATE_ON_START": "false",
         "ISA9000_DAILY_RUNS_PER_USER": str(s.config.get_int("dailyRunsPerUser") or 100),
         "ISA9000_MAX_UPLOAD_MB": str(s.config.get_int("maxUploadMb") or 10),
@@ -370,8 +366,6 @@ watchdog = app.Job(
     opts=pulumi.ResourceOptions(depends_on=data.permissions),
     **data.common,
 )
-# Each deployment prepares and runs this job before updating application workloads
-# (see deploy-stack.yml). It migrates the schema and creates the runtime role inside the VNet.
 migrate = app.Job(
     "migrate",
     job_name=f"{s.prefix}-migrate",

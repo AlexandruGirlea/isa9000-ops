@@ -170,8 +170,6 @@ insights = applicationinsights.Component(
 workspace_keys = operationalinsights.get_shared_keys_output(
     resource_group_name=group_name, workspace_name=workspace.name
 )
-# Postgres is reachable only through a private endpoint in this VNet, and prod's zone
-# redundancy needs the dedicated infrastructure subnet, both fixed at environment creation.
 vnet_cidr = ipaddress.ip_network(config.get("containerAppsVnetCidr") or "10.42.0.0/16")
 subnet_cidr = ipaddress.ip_network(config.get("containerAppsSubnetCidr") or "10.42.0.0/23")
 if (
@@ -181,7 +179,6 @@ if (
     or not subnet_cidr.subnet_of(vnet_cidr)
 ):
     raise ValueError("Container Apps requires an IPv4 subnet of /27 or larger inside its VNet")
-# The private endpoint cannot share the delegated subnet; default to the /28 right after it.
 after_apps = subnet_cidr.network_address + subnet_cidr.num_addresses
 endpoint_cidr = ipaddress.ip_network(config.get("postgresSubnetCidr") or f"{after_apps}/28")
 if (
@@ -212,7 +209,6 @@ endpoint_subnet = network.Subnet(
     virtual_network_name=apps_vnet.name,
     subnet_name="postgres-endpoint",
     address_prefix=str(endpoint_cidr),
-    # Azure rejects concurrent changes to one VNet.
     opts=pulumi.ResourceOptions(depends_on=[apps_subnet]),
 )
 vnet_configuration = {"infrastructure_subnet_id": apps_subnet.id, "internal": False}

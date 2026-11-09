@@ -75,8 +75,6 @@ jobs:
           if [ -n "$IMAGE_TAG" ]; then
             pulumi config set isa9000:imageTag "$IMAGE_TAG"
           fi
-          # Prepare infrastructure and the migration job without switching live workloads.
-          # Keep legacy database grants until those workloads switch to database-runtime.
           pulumi up --yes --non-interactive --exclude-dependents \
             --exclude 'urn:pulumi:**::azure-native:app:ContainerApp::web' \
             --exclude 'urn:pulumi:**::azure-native:app:Job::worker' \
@@ -88,9 +86,6 @@ jobs:
       - name: Migrate database
         working-directory: infra
         run: |
-          # The web app's database role cannot change the schema. This job holds the administrator
-          # login: it migrates the schema and creates that role. It runs inside the stack's VNet,
-          # because Postgres has no public access.
           python ../.github/azure_token.py
           group=$(pulumi stack output resourceGroup)
           job=$(pulumi stack output migrateJobName)
@@ -112,8 +107,6 @@ jobs:
         working-directory: infra
         run: |
           python ../.github/azure_token.py
-          # Only a successful migration reaches this step. Complete the full stack update,
-          # including switching workloads to the runtime role and removing legacy grants.
           pulumi up --yes --non-interactive
       - name: Smoke test
         working-directory: infra

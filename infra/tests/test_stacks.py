@@ -56,7 +56,6 @@ def test_stack_contract(environment):
     environment_inputs = resources["environment"]["inputs"]
     assert environment_inputs["zoneRedundant"] is production
     assert environment_inputs["vnetConfiguration"]["infrastructureSubnetId"] == "/mock/apps-subnet"
-    # No public access and no Azure-services rule: only the private endpoint reaches Postgres.
     assert postgres["network"]["publicNetworkAccess"] == "Disabled"
     assert "postgres-azure-services" not in resources
     endpoint = resources["postgres-endpoint"]["inputs"]
@@ -111,7 +110,6 @@ def test_stack_contract(environment):
     assert web_vars["DATABASE_URL"]["secretRef"] == "database-runtime"
     assert web_vars["ISA9000_MIGRATE_ON_START"]["value"] == "false"
     assert "DATABASE_URL" not in worker_vars
-    # The apps log in as the restricted role; only the migration job holds the administrator.
     migrate_vars = {item["name"]: item for item in migrate["template"]["containers"][0]["env"]}
     assert migrate_vars["DATABASE_URL"]["secretRef"] == "database"
     assert migrate_vars["ISA9000_RUNTIME_DATABASE_URL"]["secretRef"] == "database-runtime"
@@ -259,7 +257,6 @@ def test_immutable_image_and_every_employee_can_sign_in():
     [
         ({"isa9000:ingress": "internal"}, "network and certificate contract"),
         ({"isa9000:ingress": "custom-domain"}, "staged DNS and domain-binding contract"),
-        # No room is left after the Container Apps subnet for the Postgres private endpoint.
         ({"isa9000:containerAppsSubnetCidr": "10.42.255.0/24"}, "postgresSubnetCidr"),
     ],
 )

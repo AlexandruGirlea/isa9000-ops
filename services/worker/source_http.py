@@ -17,7 +17,6 @@ import urllib3
 MAX_BYTES = 20 * 1024 * 1024
 MAX_TOTAL_BYTES = 100 * 1024 * 1024
 MAX_REQUESTS = 100
-# Sources are read one at a time, each link twice, and some sites take a minute to answer.
 MAX_SECONDS = 900
 PAGE_SECONDS = 90
 READ_SECONDS = 75
@@ -55,7 +54,6 @@ class SourceHTTP:
             raise requests.RequestException("Unsupported source request options.")
         with self.lock:
             limit = min(MAX_BYTES, MAX_TOTAL_BYTES - self.bytes)
-            # The engine asks for 20 seconds; the page limit is set here, not by the caller.
             seconds = min(PAGE_SECONDS, MAX_SECONDS - self.seconds)
             if self.requests >= MAX_REQUESTS or limit <= 0 or seconds <= 0:
                 raise requests.RequestException("The source reading limit was reached.")
