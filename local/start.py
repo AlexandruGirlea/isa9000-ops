@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 
-if sys.argv[1] == "gunicorn":
+if sys.argv[1] == "gunicorn" and os.environ.get("ISA9000_MIGRATE_ON_START", "true") == "true":
     import django
     from django.core.management import call_command
     from django.db import connection

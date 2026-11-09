@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
+import sys
 from uuid import UUID
 
 from azure.identity import DefaultAzureCredential
@@ -69,6 +71,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if sys.platform == "linux":
+        ctypes.CDLL(None).prctl(4, 0, 0, 0, 0)
     try:
         raise SystemExit(main())
     finally:

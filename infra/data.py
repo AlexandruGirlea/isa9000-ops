@@ -11,12 +11,21 @@ from pulumi_azure_native import (
     dbforpostgresql,
     keyvault,
     monitor,
+    network,
+    privatedns,
     servicebus,
     storage,
 )
 
 import core as s
-from core import common, group_name, watchdog_identity, web_identity, worker_identity
+from core import (
+    common,
+    group_name,
+    migrate_identity,
+    watchdog_identity,
+    web_identity,
+    worker_identity,
+)
 
 permissions = []
 
@@ -36,6 +45,48 @@ def grant(name, identity, scope, role):
     permissions.append(assignment)
 
 
+def private_endpoint(name, resource_id, group, zones):
+    links, configs = [], []
+    for index, zone_name in enumerate(zones):
+        suffix = f"-{index}" if index else ""
+        zone = privatedns.PrivateZone(
+            f"{name}-dns{suffix}",
+            private_zone_name=zone_name,
+            resource_group_name=group_name,
+            location="global",
+            tags=s.tags,
+        )
+        links.append(privatedns.VirtualNetworkLink(
+            f"{name}-dns-link{suffix}",
+            private_zone_name=zone.name,
+            virtual_network_link_name=f"{s.prefix}-apps",
+            resource_group_name=group_name,
+            location="global",
+            tags=s.tags,
+            virtual_network={"id": s.apps_vnet.id},
+            registration_enabled=False,
+        ))
+        configs.append({"name": zone_name.replace(".", "-"), "private_dns_zone_id": zone.id})
+    endpoint = network.PrivateEndpoint(
+        f"{name}-endpoint",
+        private_endpoint_name=f"{s.prefix}-{name}",
+        subnet={"id": s.endpoint_subnet.id},
+        private_link_service_connections=[
+            {"name": name, "private_link_service_id": resource_id, "group_ids": [group]}
+        ],
+        **common,
+    )
+    dns = network.PrivateDnsZoneGroup(
+        f"{name}-dns-group",
+        resource_group_name=group_name,
+        private_endpoint_name=endpoint.name,
+        private_dns_zone_group_name="default",
+        private_dns_zone_configs=configs,
+        opts=pulumi.ResourceOptions(depends_on=links),
+    )
+    return [endpoint, dns]
+
+
 vault = keyvault.Vault(
     "vault",
     vault_name=f"{s.prefix}-{s.suffix}",
@@ -46,9 +97,13 @@ vault = keyvault.Vault(
         "enable_soft_delete": True,
         "enable_purge_protection": True,
         "soft_delete_retention_in_days": 90,
+        "public_network_access": "Disabled",
     },
     opts=pulumi.ResourceOptions(protect=s.environment == "prod"),
     **common,
+)
+permissions.extend(
+    private_endpoint("vault", vault.id, "vault", ["privatelink.vaultcore.azure.net"])
 )
 monitor.DiagnosticSetting(
     "vault-audit",
@@ -66,6 +121,7 @@ account = storage.StorageAccount(
     allow_shared_key_access=False,
     enable_https_traffic_only=True,
     minimum_tls_version="TLS1_2",
+    public_network_access="Disabled",
     opts=pulumi.ResourceOptions(protect=s.environment == "prod"),
     **common,
 )
@@ -89,6 +145,7 @@ for container in ("courses", "uploads", "auth-tokens"):
         container_name=container,
         public_access="None",
     )
+private_endpoint("blob", account.id, "blob", ["privatelink.blob.core.windows.net"])
 storage.ManagementPolicy(
     "upload-expiry",
     resource_group_name=group_name,
@@ -148,6 +205,10 @@ for name, identity in (
     grant(f"{name}-telemetry", identity, s.insights.id, "3913510d-42f4-4e42-8a64-420c390055eb")
     if s.registry:
         grant(f"{name}-registry", identity, s.registry, "7f951dda-4ed3-4680-a7ca-43fe172d538d")
+if s.registry:
+    grant(
+        "migrate-registry", migrate_identity, s.registry, "7f951dda-4ed3-4680-a7ca-43fe172d538d"
+    )
 
 bus = servicebus.Namespace(
     "servicebus",
@@ -173,6 +234,7 @@ grant("web-send", web_identity, queue.id, "69a216fc-b8fb-44d8-bc22-1f3c2cd27a39"
 grant("worker-receive", worker_identity, queue.id, "4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0")
 
 database_password = random.RandomPassword("postgres-password", length=40, special=False)
+runtime_password = random.RandomPassword("postgres-runtime-password", length=40, special=False)
 database = dbforpostgresql.Server(
     "postgres",
     server_name=f"{s.prefix}-{s.suffix}",
@@ -196,26 +258,57 @@ database = dbforpostgresql.Server(
         "backup_retention_days": 35 if s.environment == "prod" else 7,
         "geo_redundant_backup": "Enabled" if s.environment == "prod" else "Disabled",
     },
-    network={"public_network_access": "Enabled"},
+    network={"public_network_access": "Disabled"},
     auth_config={"password_auth": "Enabled", "active_directory_auth": "Disabled"},
     opts=pulumi.ResourceOptions(protect=s.environment == "prod"),
     **common,
 )
-database_access = dbforpostgresql.FirewallRule(
-    "postgres-azure-services",
+database_zone = privatedns.PrivateZone(
+    "postgres-dns",
+    private_zone_name="privatelink.postgres.database.azure.com",
     resource_group_name=group_name,
-    server_name=database.name,
-    firewall_rule_name="AllowAzureServices",
-    start_ip_address="0.0.0.0",
-    end_ip_address="0.0.0.0",
+    location="global",
+    tags=s.tags,
 )
+database_link = privatedns.VirtualNetworkLink(
+    "postgres-dns-link",
+    private_zone_name=database_zone.name,
+    virtual_network_link_name=f"{s.prefix}-apps",
+    resource_group_name=group_name,
+    location="global",
+    tags=s.tags,
+    virtual_network={"id": s.apps_vnet.id},
+    registration_enabled=False,
+)
+database_endpoint = network.PrivateEndpoint(
+    "postgres-endpoint",
+    private_endpoint_name=f"{s.prefix}-postgres",
+    subnet={"id": s.endpoint_subnet.id},
+    private_link_service_connections=[
+        {
+            "name": "postgres",
+            "private_link_service_id": database.id,
+            "group_ids": ["postgresqlServer"],
+        }
+    ],
+    **common,
+)
+database_dns = network.PrivateDnsZoneGroup(
+    "postgres-dns-group",
+    resource_group_name=group_name,
+    private_endpoint_name=database_endpoint.name,
+    private_dns_zone_group_name="default",
+    private_dns_zone_configs=[{"name": "postgres", "private_dns_zone_id": database_zone.id}],
+    opts=pulumi.ResourceOptions(depends_on=[database_link]),
+)
+database_access = [database_endpoint, database_dns]
 database_schema = dbforpostgresql.Database(
     "database",
     resource_group_name=group_name,
     server_name=database.name,
     database_name="isa9000",
     charset="UTF8",
-    opts=pulumi.ResourceOptions(depends_on=[database_access]),
+    opts=pulumi.ResourceOptions(depends_on=database_access),
 )
 # Azure rejects concurrent changes to one server with ServerIsBusy.
 # Azure rejects the provider's reset on delete, so keep parameters; they go with the server.
@@ -233,14 +326,19 @@ for parameter, value in (
         source="user-override",
         opts=pulumi.ResourceOptions(depends_on=[database_ready], retain_on_delete=True),
     )
-database_url = pulumi.Output.all(
-    database_password.result, database.fully_qualified_domain_name
-).apply(
-    lambda values: (
-        f"postgresql://isa9000:{quote(values[0], safe='')}@{values[1]}:5432/isa9000"
-        "?sslmode=verify-full&sslrootcert=/etc/ssl/certs/ca-certificates.crt"
+
+
+def database_connection(user, password):
+    return pulumi.Output.all(password, database.fully_qualified_domain_name).apply(
+        lambda values: (
+            f"postgresql://{user}:{quote(values[0], safe='')}@{values[1]}:5432/isa9000"
+            "?sslmode=verify-full&sslrootcert=/etc/ssl/certs/ca-certificates.crt"
+        )
     )
-)
+
+
+database_admin_url = database_connection("isa9000", database_password.result)
+database_url = database_connection("isa9000_app", runtime_password.result)
 callback_secret = random.RandomPassword("callback-secret", length=64, special=False)
 django_secret = random.RandomPassword("django-secret", length=64, special=False)
 payload_key = random.RandomBytes("payload-key", length=32)
@@ -254,9 +352,15 @@ if s.foundry == "create":
         properties={
             "custom_sub_domain_name": f"{s.prefix}-{s.suffix}",
             "disable_local_auth": True,
+            "public_network_access": "Disabled",
         },
         **common,
     )
+    private_endpoint("foundry", foundry.id, "account", [
+        "privatelink.cognitiveservices.azure.com",
+        "privatelink.openai.azure.com",
+        "privatelink.services.ai.azure.com",
+    ])
     for model in s.models:
         cognitiveservices.Deployment(
             f"model-{model['role']}",

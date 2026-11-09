@@ -85,7 +85,8 @@ vault_secrets = {
         tags=s.tags,
     )
     for name, value in {
-        "database": data.database_url,
+        "database": data.database_admin_url,
+        "database-runtime": data.database_url,
         "django-key": data.django_secret.result,
         "callback": data.callback_secret.result,
         "payload-key": data.payload_key.base64,
@@ -95,9 +96,17 @@ vault_secrets = {
 }
 credential_refs = {}
 for workload, resource, names in (
-    ("web", data.web_identity, vault_secrets),
+    (
+        "web",
+        data.web_identity,
+        (
+            "database-runtime", "django-key", "callback", "payload-key", "admin-group",
+            "auth-client-secret",
+        ),
+    ),
     ("worker", data.worker_identity, ("callback", "payload-key")),
-    ("watchdog", data.watchdog_identity, ("database", "django-key", "admin-group")),
+    ("watchdog", data.watchdog_identity, ("database-runtime", "django-key", "admin-group")),
+    ("migrate", data.migrate_identity, ("database", "database-runtime", "django-key")),
 ):
     credential_refs[workload] = []
     for name in names:
@@ -123,12 +132,13 @@ web_env = variables(
         "ISA9000_GRAPH_GROUPS": str(s.graph_groups).lower(),
         "ISA9000_ALLOWED_HOSTS": edge.azure_host,
         "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat("https://", edge.azure_host),
-        "ISA9000_DAILY_RUNS_PER_USER": str(s.config.get_int("dailyRunsPerUser") or 5),
-        "ISA9000_MAX_UPLOAD_MB": str(s.config.get_int("maxUploadMb") or 20),
-        "ISA9000_MAX_FILES": str(s.config.get_int("maxFiles") or 10),
+        "ISA9000_MIGRATE_ON_START": "false",
+        "ISA9000_DAILY_RUNS_PER_USER": str(s.config.get_int("dailyRunsPerUser") or 100),
+        "ISA9000_MAX_UPLOAD_MB": str(s.config.get_int("maxUploadMb") or 10),
+        "ISA9000_MAX_FILES": str(s.config.get_int("maxFiles") or 5),
     },
     {
-        "DATABASE_URL": "database",
+        "DATABASE_URL": "database-runtime",
         "ISA9000_DJANGO_SECRET_KEY": "django-key",
         "ISA9000_CALLBACK_SECRET": "callback",
         "ISA9000_PAYLOAD_KEY": "payload-key",
@@ -199,7 +209,7 @@ web = app.ContainerApp(
     opts=pulumi.ResourceOptions(
         depends_on=[
             *data.permissions,
-            data.database_access,
+            *data.database_access,
             data.database_ready,
         ]
     ),
@@ -345,9 +355,44 @@ watchdog = app.Job(
                         "AZURE_CLIENT_ID": data.watchdog_identity.client_id,
                     },
                     {
-                        "DATABASE_URL": "database",
+                        "DATABASE_URL": "database-runtime",
                         "ISA9000_DJANGO_SECRET_KEY": "django-key",
                         "ISA9000_ADMIN_GROUP_ID": "admin-group",
+                    },
+                ),
+            }
+        ]
+    },
+    opts=pulumi.ResourceOptions(depends_on=data.permissions),
+    **data.common,
+)
+migrate = app.Job(
+    "migrate",
+    job_name=f"{s.prefix}-migrate",
+    environment_id=s.app_environment.id,
+    identity=identity(data.migrate_identity),
+    workload_profile_name="Consumption",
+    configuration={
+        "trigger_type": "Manual",
+        "replica_timeout": 900,
+        "replica_retry_limit": 0,
+        "manual_trigger_config": {"parallelism": 1, "replica_completion_count": 1},
+        "secrets": credential_refs["migrate"],
+        "registries": registries(data.migrate_identity),
+    },
+    template={
+        "containers": [
+            {
+                "name": "migrate",
+                "image": s.image,
+                "args": ["python", "manage.py", "migrate_database"],
+                "resources": {"cpu": 0.5, "memory": "1Gi"},
+                "env": variables(
+                    {},
+                    {
+                        "DATABASE_URL": "database",
+                        "ISA9000_RUNTIME_DATABASE_URL": "database-runtime",
+                        "ISA9000_DJANGO_SECRET_KEY": "django-key",
                     },
                 ),
             }

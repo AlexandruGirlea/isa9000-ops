@@ -26,7 +26,7 @@ it does not host the employee application or private podcasts.
 
 An empty repository or a README alone is not an installable release. Confirm
 source and image availability before scheduling an Azure rollout.
-[Current rollout limits →](azure.md#before-provisioning)
+[Azure deployment requirements →](azure.md#before-provisioning)
 
 ## 1. Get the source
 
@@ -140,13 +140,13 @@ document, its audio plays, and only the intended group can open it.
 
 ## 6. Give employees a shared company URL
 
-The local app is for evaluation on one computer. To run a shared Azure pilot,
+The local app is for evaluation on one computer. To run a shared Azure installation,
 continue with the [Azure installation guide](azure.md). It covers the company
 repository, Azure resources, secrets, deployment and acceptance checks.
 
-A production rollout additionally needs completed domain/networking support and
-Azure validation. Those are explicit prerequisites, not steps hidden behind
-`make local-run`.
+The supplied stack uses an Azure Container Apps HTTPS address. For a custom domain
+or company network integration, review the infrastructure changes in
+[Client networking](networking.md) before provisioning.
 
 ## If something gets stuck
 

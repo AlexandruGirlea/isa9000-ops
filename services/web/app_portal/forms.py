@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.security import source_url
+from core.security import link_checks_exceeded, source_url
 from django import forms
 from django.conf import settings
 from isa9000.config import VOICES, load_config
 from pydantic import ValidationError
 
+from app_portal.runs import daily_limit_reached
 from shared.generation import generation_defaults, validate_generation
 
 
@@ -154,12 +155,21 @@ class CreateForm(GenerationForm):
         required=False, initial=True, label="Review transcripts before recording",
     )
 
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
     def clean_links(self):
         links = list(dict.fromkeys(
             line.strip() for line in self.cleaned_data["links"].splitlines() if line.strip()
         ))
         if len(links) > 20:
             raise forms.ValidationError("Add at most 20 source links.")
+        if links and self.user:
+            if daily_limit_reached(self.user):
+                raise forms.ValidationError("Your daily run limit has been reached.")
+            if link_checks_exceeded(self.user, len(links)):
+                raise forms.ValidationError("Too many link checks. Wait a minute and try again.")
         return [source_url(link) for link in links]
 
 

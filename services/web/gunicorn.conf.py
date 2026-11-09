@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("RES_OPTIONS", "timeout:2 attempts:1")
+
 worker_class = "gthread"
 workers = 2
 threads = 4

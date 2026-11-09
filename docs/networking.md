@@ -9,9 +9,11 @@ Client deployments use Azure end to end. The client owns its Azure network, DNS,
 firewall and gateway/WAF. isa9000-ops owns
 its application resources, identities and Key Vault in its environment resource
 group. The default pilot does not alter corporate networking. The examples below
-are commented out and are not imported by the Pulumi program.
+are commented out and are not imported by the Pulumi program. Inside its own VNet the
+stack already uses private endpoints for Postgres, Blob, Key Vault and any Foundry
+account it creates, with public access disabled on those resources.
 
-Private networking is an integration step, not an existing configuration switch.
+Company network integration requires infrastructure changes.
 Keep the current unsupported-mode checks until the connections below are completed
 and verified in dev. Do not enable production by only removing those checks.
 
@@ -41,6 +43,7 @@ VNet. The network owner must approve subnet sizes, delegation and routing.
 | Gateway | Web origin only; block internal worker callbacks on public routes. |
 | Django web | PostgreSQL, Blob, Service Bus sender, its Key Vault secrets, Entra signing keys, telemetry and, with `graphGroups`, Microsoft Graph. |
 | Django watchdog | PostgreSQL, its three Key Vault secrets and telemetry. |
+| Migration job | PostgreSQL with the administrator login, started by each deployment; its three Key Vault secrets and the image registry. |
 | Worker | Assigned Foundry services, upload/course Blob containers, Service Bus receiver, its two Key Vault secrets, private callback host and telemetry. |
 | Source fetch subprocess | Approved public HTTP/HTTPS sources; no database, metadata service or other private destination. |
 
@@ -77,9 +80,9 @@ resource ownership in the client's infrastructure stack.
 # }
 ```
 
-For example, the client's network stack can connect the default application
-vault to a private endpoint. Use `keyVaultId` from the application stack; do not
-recreate the vault in the network stack.
+For example, the client's network stack can add an endpoint for the application
+vault in its own network. The application stack already creates an endpoint in
+its VNet. Use `keyVaultId` from the application stack; do not recreate the vault.
 
 ```python
 # from pulumi_azure_native import network
@@ -110,8 +113,9 @@ recreate the vault in the network stack.
 The vault's private DNS zone is `privatelink.vaultcore.azure.net`; clients still
 use its normal `*.vault.azure.net` URI. Follow Microsoft's
 [Key Vault Private Link guidance](https://learn.microsoft.com/en-us/azure/key-vault/general/private-link-service).
-Blob and Foundry need their own approved endpoints and DNS; a vault endpoint does
-not isolate those services. Basic Service Bus remains Entra-authenticated over
+Connect the existing Blob and managed Foundry endpoints and DNS to the approved
+client networks too. For reused Foundry, coordinate connectivity with its owner.
+Service Bus Basic (dev/test) and Standard (prod) remain Entra-authenticated over
 TLS; private endpoints require a supported higher tier and a client decision.
 
 ## Minimum application integration changes
@@ -121,13 +125,15 @@ TLS; private endpoints require a supported higher tier and a client decision.
    the web environment and worker uses the separate worker environment. An internal
    environment and a per-app ingress flag are different controls: allow the worker's
    private callback route without opening a public origin.
-2. In `infra/data.py`, apply the private PostgreSQL network settings and remove
-   `postgres-azure-services`. This can require a database migration or replacement;
-   keep resource protection and use the client's recovery plan.
-3. Create and approve private endpoints, link DNS to both workload networks and
-   verify resolution/reachability. Then disable public network access on Blob,
-   Key Vault and the managed Foundry account. For reused Foundry, its owner makes
-   that change. Do not disable endpoints before private resolution works.
+2. Postgres already has no public access and is reached through the stack's private
+   endpoint. In `infra/data.py`, point that endpoint and its DNS zone group at the
+   client's subnet and private DNS zone. Moving to a delegated subnet (virtual network
+   integration) can require a database migration or replacement; keep resource
+   protection and use the client's recovery plan.
+3. Connect the stack's Blob, Key Vault and managed Foundry private endpoints and
+   DNS to both workload networks and verify resolution/reachability. Their public
+   access is already disabled. For reused Foundry, its owner manages endpoints,
+   DNS and public access. Preserve working routes during the cutover.
 4. In `infra/edge.py` and `infra/apps.py`, connect the gateway, approved hostname,
    certificate and callback hostname. Update `ISA9000_ALLOWED_HOSTS`, the trusted
    callback base URL on both services, and the Entra redirect URI together.

@@ -8,7 +8,7 @@ from pathlib import PurePosixPath
 from azure.core.exceptions import ResourceNotFoundError
 from core.audit import record
 from core.branding import player_html
-from core.security import source_url
+from core.security import link_checks_exceeded, source_url
 from core.views import error_page, page
 from django.conf import settings
 from django.contrib.admin.models import ADDITION, DELETION
@@ -99,7 +99,7 @@ def course_page(request, course_id):
 @require_http_methods(["GET", "POST"])
 def create(request, group_id):
     group = group_for(request.user, group_id, manage=True)
-    form = CreateForm(request.POST or None, request.FILES or None)
+    form = CreateForm(request.POST or None, request.FILES or None, user=request.user)
     if request.method == "POST" and form.is_valid():
         try:
             with transaction.atomic():
@@ -150,6 +150,8 @@ def create(request, group_id):
 @require_POST
 def check_source(request, group_id):
     group_for(request.user, group_id, manage=True)
+    if link_checks_exceeded(request.user, 1):
+        return JsonResponse({"ok": False, "detail": "Too many checks."}, status=429)
     try:
         source_url(request.POST.get("source", "").strip())
     except ValidationError as error:

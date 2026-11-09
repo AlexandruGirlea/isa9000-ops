@@ -53,8 +53,18 @@ def test_stack_contract(environment):
     assert postgres["sku"]["tier"] == ("GeneralPurpose" if production else "Burstable")
     assert postgres["backup"]["geoRedundantBackup"] == ("Enabled" if production else "Disabled")
     assert resources["require_secure_transport"]["inputs"]["value"] == "ON"
-    assert resources["environment"]["inputs"]["zoneRedundant"] is production
-    assert ("apps-subnet" in resources) is production
+    environment_inputs = resources["environment"]["inputs"]
+    assert environment_inputs["zoneRedundant"] is production
+    assert environment_inputs["vnetConfiguration"]["infrastructureSubnetId"] == "/mock/apps-subnet"
+    assert postgres["network"]["publicNetworkAccess"] == "Disabled"
+    assert "postgres-azure-services" not in resources
+    endpoint = resources["postgres-endpoint"]["inputs"]
+    assert endpoint["subnet"]["id"] == "/mock/postgres-subnet"
+    assert endpoint["privateLinkServiceConnections"][0]["groupIds"] == ["postgresqlServer"]
+    assert resources["postgres-dns"]["inputs"]["privateZoneName"] == (
+        "privatelink.postgres.database.azure.com"
+    )
+    assert resources["postgres-dns-link"]["inputs"]["virtualNetwork"]["id"] == "/mock/apps-vnet"
     vault = resources["vault"]["inputs"]["properties"]
     assert vault["enableRbacAuthorization"] is True
     assert vault["enablePurgeProtection"] is True
@@ -62,14 +72,18 @@ def test_stack_contract(environment):
     web = resources["web"]["inputs"]
     worker = resources["worker"]["inputs"]
     watchdog = resources["watchdog"]["inputs"]
+    migrate = resources["migrate"]["inputs"]
     assert web["template"]["scale"]["minReplicas"] == (1 if production else 0)
     expected_secrets = {
-        "web": {"database", "django-key", "callback", "admin-group", "auth-client-secret",
+        "web": {"database-runtime", "django-key", "callback", "admin-group", "auth-client-secret",
                 "payload-key"},
         "worker": {"callback", "payload-key"},
-        "watchdog": {"database", "django-key", "admin-group"},
+        "watchdog": {"database-runtime", "django-key", "admin-group"},
+        "migrate": {"database", "database-runtime", "django-key"},
     }
-    for name, service in (("web", web), ("worker", worker), ("watchdog", watchdog)):
+    for name, service in (
+        ("web", web), ("worker", worker), ("watchdog", watchdog), ("migrate", migrate)
+    ):
         credentials = {
             item["name"]: item for item in service["configuration"]["secrets"]
             if not item["name"].startswith("isa9000-")
@@ -93,8 +107,22 @@ def test_stack_contract(environment):
     web_vars = {item["name"]: item for item in web["template"]["containers"][0]["env"]}
     worker_vars = {item["name"]: item for item in worker["template"]["containers"][0]["env"]}
     assert web_vars["ISA9000_AUTH"]["value"] == "easyauth"
-    assert web_vars["DATABASE_URL"]["secretRef"] == "database"
+    assert web_vars["DATABASE_URL"]["secretRef"] == "database-runtime"
+    assert web_vars["ISA9000_MIGRATE_ON_START"]["value"] == "false"
     assert "DATABASE_URL" not in worker_vars
+    migrate_vars = {item["name"]: item for item in migrate["template"]["containers"][0]["env"]}
+    assert migrate_vars["DATABASE_URL"]["secretRef"] == "database"
+    assert migrate_vars["ISA9000_RUNTIME_DATABASE_URL"]["secretRef"] == "database-runtime"
+    assert migrate["configuration"]["triggerType"] == "Manual"
+    assert migrate["template"]["containers"][0]["args"] == [
+        "python", "manage.py", "migrate_database"
+    ]
+    runtime = resources["secret-database-runtime"]["inputs"]["properties"]["value"]
+    administrator = resources["secret-database"]["inputs"]["properties"]["value"]
+    assert runtime.startswith("postgresql://isa9000_app:")
+    assert administrator.startswith("postgresql://isa9000:")
+    assert "web-secret-database" not in resources
+    assert "watchdog-secret-database" not in resources
     assert "ISA9000_AZURE_OPENAI_API_KEY" not in worker_vars
     assert all(
         "CONNECTION_STRING" not in name or name == "APPLICATIONINSIGHTS_CONNECTION_STRING"
@@ -132,10 +160,22 @@ def test_metric_alert_uses_azure_serialized_criteria():
 
 def test_postgres_changes_run_one_at_a_time_before_the_web_app():
     dependencies = run_stack("dev")["dependencies"]
-    assert dependencies["database"] == ["postgres-azure-services"]
+    assert dependencies["database"] == ["postgres-endpoint", "postgres-dns-group"]
+    assert dependencies["postgres-dns-group"] == ["postgres-dns-link"]
     assert dependencies["require_secure_transport"] == ["database"]
     assert dependencies["ssl_min_protocol_version"] == ["require_secure_transport"]
-    assert "ssl_min_protocol_version" in dependencies["web"]
+    assert {"postgres-dns-group", "ssl_min_protocol_version"} <= set(dependencies["web"])
+
+
+def test_postgres_endpoint_subnet_follows_the_container_apps_subnet():
+    resources = run_stack(
+        "dev",
+        {
+            "isa9000:containerAppsVnetCidr": "192.168.0.0/16",
+            "isa9000:containerAppsSubnetCidr": "192.168.4.0/24",
+        },
+    )["resources"]
+    assert resources["postgres-subnet"]["inputs"]["addressPrefix"] == "192.168.5.0/28"
 
 
 def test_client_reuses_foundry_auth_and_resource_group():
@@ -217,6 +257,7 @@ def test_immutable_image_and_every_employee_can_sign_in():
     [
         ({"isa9000:ingress": "internal"}, "network and certificate contract"),
         ({"isa9000:ingress": "custom-domain"}, "staged DNS and domain-binding contract"),
+        ({"isa9000:containerAppsSubnetCidr": "10.42.255.0/24"}, "postgresSubnetCidr"),
     ],
 )
 def test_unresolved_or_protected_settings_stop(overrides, message):

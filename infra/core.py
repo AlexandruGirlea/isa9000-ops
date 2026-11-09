@@ -141,6 +141,11 @@ watchdog_identity = managedidentity.UserAssignedIdentity(
     resource_name_=f"{prefix}-watchdog",
     **common,
 )
+migrate_identity = managedidentity.UserAssignedIdentity(
+    "migrate-identity",
+    resource_name_=f"{prefix}-migrate",
+    **common,
+)
 retention = config.get_int("logRetentionDays") or (365 if environment == "prod" else 30)
 if environment == "prod" and retention < 365:
     raise ValueError("Production logRetentionDays must be at least 365")
@@ -165,33 +170,48 @@ insights = applicationinsights.Component(
 workspace_keys = operationalinsights.get_shared_keys_output(
     resource_group_name=group_name, workspace_name=workspace.name
 )
-vnet_configuration = None
-if environment == "prod":
-    # Zone redundancy requires a dedicated infrastructure subnet at environment creation.
-    vnet_cidr = ipaddress.ip_network(config.get("containerAppsVnetCidr") or "10.42.0.0/16")
-    subnet_cidr = ipaddress.ip_network(config.get("containerAppsSubnetCidr") or "10.42.0.0/23")
-    if (
-        vnet_cidr.version != 4
-        or subnet_cidr.version != 4
-        or subnet_cidr.prefixlen > 27
-        or not subnet_cidr.subnet_of(vnet_cidr)
-    ):
-        raise ValueError("Container Apps requires an IPv4 subnet of /27 or larger inside its VNet")
-    apps_vnet = network.VirtualNetwork(
-        "apps-vnet",
-        virtual_network_name=f"{prefix}-apps",
-        address_space={"address_prefixes": [str(vnet_cidr)]},
-        **common,
+vnet_cidr = ipaddress.ip_network(config.get("containerAppsVnetCidr") or "10.42.0.0/16")
+subnet_cidr = ipaddress.ip_network(config.get("containerAppsSubnetCidr") or "10.42.0.0/23")
+if (
+    vnet_cidr.version != 4
+    or subnet_cidr.version != 4
+    or subnet_cidr.prefixlen > 27
+    or not subnet_cidr.subnet_of(vnet_cidr)
+):
+    raise ValueError("Container Apps requires an IPv4 subnet of /27 or larger inside its VNet")
+after_apps = subnet_cidr.network_address + subnet_cidr.num_addresses
+endpoint_cidr = ipaddress.ip_network(config.get("postgresSubnetCidr") or f"{after_apps}/28")
+if (
+    endpoint_cidr.version != 4
+    or not endpoint_cidr.subnet_of(vnet_cidr)
+    or endpoint_cidr.overlaps(subnet_cidr)
+):
+    raise ValueError(
+        "isa9000:postgresSubnetCidr must be an IPv4 range in the VNet outside the apps subnet"
     )
-    apps_subnet = network.Subnet(
-        "apps-subnet",
-        resource_group_name=group_name,
-        virtual_network_name=apps_vnet.name,
-        subnet_name="container-apps",
-        address_prefix=str(subnet_cidr),
-        delegations=[{"name": "container-apps", "service_name": "Microsoft.App/environments"}],
-    )
-    vnet_configuration = {"infrastructure_subnet_id": apps_subnet.id, "internal": False}
+apps_vnet = network.VirtualNetwork(
+    "apps-vnet",
+    virtual_network_name=f"{prefix}-apps",
+    address_space={"address_prefixes": [str(vnet_cidr)]},
+    **common,
+)
+apps_subnet = network.Subnet(
+    "apps-subnet",
+    resource_group_name=group_name,
+    virtual_network_name=apps_vnet.name,
+    subnet_name="container-apps",
+    address_prefix=str(subnet_cidr),
+    delegations=[{"name": "container-apps", "service_name": "Microsoft.App/environments"}],
+)
+endpoint_subnet = network.Subnet(
+    "postgres-subnet",
+    resource_group_name=group_name,
+    virtual_network_name=apps_vnet.name,
+    subnet_name="postgres-endpoint",
+    address_prefix=str(endpoint_cidr),
+    opts=pulumi.ResourceOptions(depends_on=[apps_subnet]),
+)
+vnet_configuration = {"infrastructure_subnet_id": apps_subnet.id, "internal": False}
 app_environment = app.ManagedEnvironment(
     "environment",
     environment_name=f"{prefix}-apps",

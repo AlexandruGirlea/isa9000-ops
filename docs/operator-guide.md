@@ -376,13 +376,14 @@ status, and changing it records who did so and when.
 
 **Admin → Activity** records who created, edited, shared, canceled and deleted what, and each
 podcast shows who last edited it. Administrators can read these records but not add, change or
-delete them, and a PostgreSQL trigger refuses updates and deletes. A database owner can still
-remove that trigger, so this is not a tamper-proof ledger.
+delete them, and a PostgreSQL trigger refuses updates and deletes. The application's database
+role cannot remove that trigger, but the database administrator can, so this is not a
+tamper-proof ledger.
 
 Application Insights is independent of database edits, but it is not an immutable
 ledger: Azure administrators control retention and purge permissions. Direct SQL
-changes bypass application auditing. Azure ingestion and access controls still
-need validation in an approved deployment.
+changes bypass application auditing. Verify Azure ingestion and access controls
+as part of your deployment checks.
 
 Use [infra/audit.kql](https://github.com/AlexandruGirlea/isa9000-ops/blob/main/infra/audit.kql) in the Log Analytics workspace to inspect
 the audit trail. The infrastructure includes an alert for more than five denied
@@ -395,7 +396,8 @@ operators can find the matching spans and audit events.
 
 ## 8. Releases
 
-One `v*` tag deploys dev, then test, then prod. Prod needs an approver, and it
+Upstream `v*` releases publish the application image. In a configured company
+repository, a `v*` tag deploys dev, then test, then prod. Prod needs an approver, and it
 can't run unless dev and test passed in the same run. To stop after dev or test, set
 the repository variable `LAST_ENVIRONMENT` to `dev` or `test`; the later environments
 show as skipped.
@@ -435,8 +437,10 @@ Treat cookie values as credentials.
 Emulator messages do not survive restarts, and message TTL is limited to an hour.
 
 The image uses UID 10001. Source and branding are mounted locally; Python changes
-reload. The watchdog checks every five minutes. Azure startup migrations use a
-PostgreSQL advisory lock to serialize changes across replicas.
+reload. The watchdog checks every five minutes. In Azure the web app's database role cannot
+change the schema, so a `migrate` job migrates it instead, under a PostgreSQL advisory lock,
+and the web app sets `ISA9000_MIGRATE_ON_START=false`. Without that variable the image still
+migrates when it starts.
 
 The optional `local/models.py` provisioning helper requires `--resource-group`
 and a private `local/foundry/Pulumi.local.yaml` with an `isa9000:models` list.
@@ -488,8 +492,8 @@ state secret is
 `PULUMI_DEV_CONFIG_PASSPHRASE`, a copy of the dev environment's passphrase.
 Preview runs only for same-repository branches. Review the
 PR's code before approving access to dev secrets; prod secrets are never supplied.
-Reader-only preview permissions still need Azure validation because some
-providers read resource keys.
+Verify reader-only preview permissions in dev because some providers read
+resource keys.
 
 The deployment workflow only accepts calls from the tag-triggered release
 workflow. Upstream publishes an image and GitHub build provenance; a company
@@ -504,9 +508,10 @@ secret-level grants; no workload receives vault-wide Secrets User access.
 
 | Workload | Secrets it may read |
 |---|---|
-| Django web | `database`, `django-key`, `callback`, `admin-group`, `auth-client-secret`, `payload-key` |
-| Django watchdog | `database`, `django-key`, `admin-group` |
+| Django web | `database-runtime`, `django-key`, `callback`, `admin-group`, `auth-client-secret`, `payload-key` |
+| Django watchdog | `database-runtime`, `django-key`, `admin-group` |
 | Worker | `callback`, `payload-key` |
+| Migration job | `database` (administrator), `database-runtime`, `django-key` |
 
 Service Bus uses TLS and callbacks use HTTPS in Azure. Task bodies, callback bodies
 and successful replies additionally use AES-256-GCM with the same per-environment
@@ -548,26 +553,23 @@ or recovery therefore needs a separately authorized operator; do not broaden
 worker permissions or disable production protection to make cleanup succeed.
 See [client networking](networking.md) for the independent database/network boundary.
 
-## 12. Deployment status
+## 12. Deployment checks
 
-The portal, worker and infrastructure have local automated coverage, including group
-permissions, review and editing, callbacks, source fetching and mocked cloud resources.
-Local browser checks have exercised the listener and creator flows at mobile and
-desktop widths. These checks do not establish real model quality, production readiness
-or real-device background playback.
+The supplied Azure stack uses a Container Apps HTTPS hostname with Entra sign-in.
+Postgres has no public access: the apps reach it through a private endpoint in the
+stack's own VNet. Internal ingress, Postgres in a company network, custom domains
+and provided certificates require infrastructure integration; see
+[Client networking](networking.md). Configure rate limits at your Azure gateway/WAF.
 
-The local stack supports Entra sign-in and real Foundry generation when configured.
-A completed Azure application deployment is still pending. Before promotion, validate
-Easy Auth claims, worker callback routing, managed identities, secret mounts, queue
-scaling, media access and tracing in dev. Run the current image scan and an approved
-real generation with your organization's model deployments.
+Before promotion, validate Easy Auth claims, worker callback routing, managed
+identities, secret mounts, queue scaling, media access and tracing in dev. Run
+the current image scan and an approved real generation with your organization's
+model deployments. Check the listener and creator flows on your supported browsers
+and devices, including background playback where required.
 
-The public Azure pilot is implemented. Client deployments use Azure end to end;
-their network ownership, inactive Pulumi examples and integration steps are in
-[Client networking](networking.md). Internal ingress, private Postgres, custom domains
-and provided certificates need that integration before use. Postgres currently uses
-the pilot's Azure-services firewall exception. Clients configure rate limits at their
-Azure gateway/WAF.
+Repeat acceptance checks in test with the same image digest. Exercise backup and
+restore procedures, verify alert delivery, and record results and operational
+ownership in your private deployment workspace.
 
 Public smoke tests check availability, not the served version; internal checks inspect
 the latest revision's health and image. Verify preview-provider permissions without

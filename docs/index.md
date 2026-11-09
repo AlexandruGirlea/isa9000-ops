@@ -32,8 +32,8 @@ then bring your own documents, audience and brand.
 1. **Get a company copy.** IT downloads the source and tries the browser app locally.
 2. **Make it yours.** Choose a name and logo, connect Microsoft sign-in, and agree
    on Azure resources and approved AI services.
-3. **Install and validate.** IT provisions the Azure pilot, checks access and
-   generation, and completes the production requirements before rollout.
+3. **Install and validate.** IT deploys to Azure and checks sign-in, access and
+   podcast generation with your team before rollout.
 4. **Publish your first podcast.** Creators add documents, review and publish;
    employees open the company URL and listen.
 
@@ -61,10 +61,10 @@ terms. [See the architecture and data flow →](architecture.md)
 
 ## Start with a pilot
 
-The local app is implemented and has been exercised with browser and automated
-checks. A completed Azure application deployment is still awaiting validation.
-Company-domain production onboarding and private networking need further work.
+Try the app locally with a small set of documents and a pilot audience, then use
+your Azure environment for a shared installation.
 
-The [installation guide](getting-started.md) explains the working local path,
-the Azure setup sequence, and the exact checks that must precede production.
+The [installation guide](getting-started.md) covers local setup, Azure deployment
+and checks for your organization's rollout. The [Azure guide](azure.md#before-provisioning)
+describes the supplied infrastructure and network integration options.
 [Talk to us](https://girlea.ro) about planning your organization's pilot.

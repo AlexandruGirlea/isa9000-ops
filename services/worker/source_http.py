@@ -17,7 +17,9 @@ import urllib3
 MAX_BYTES = 20 * 1024 * 1024
 MAX_TOTAL_BYTES = 100 * 1024 * 1024
 MAX_REQUESTS = 100
-MAX_SECONDS = 180
+MAX_SECONDS = 900
+PAGE_SECONDS = 90
+READ_SECONDS = 75
 MAX_REDIRECTS = 5
 
 
@@ -52,7 +54,7 @@ class SourceHTTP:
             raise requests.RequestException("Unsupported source request options.")
         with self.lock:
             limit = min(MAX_BYTES, MAX_TOTAL_BYTES - self.bytes)
-            seconds = min(timeout, 20, MAX_SECONDS - self.seconds)
+            seconds = min(PAGE_SECONDS, MAX_SECONDS - self.seconds)
             if self.requests >= MAX_REQUESTS or limit <= 0 or seconds <= 0:
                 raise requests.RequestException("The source reading limit was reached.")
             self.requests += 1
@@ -158,7 +160,7 @@ def fetch(url, headers, limit):
                         "GET",
                         path,
                         headers={**headers, "Host": host_header, "Accept-Encoding": "identity"},
-                        timeout=urllib3.Timeout(connect=5, read=5),
+                        timeout=urllib3.Timeout(connect=5, read=READ_SECONDS),
                         retries=False,
                         redirect=False,
                         preload_content=False,

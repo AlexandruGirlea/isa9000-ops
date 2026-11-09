@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add private Azure service connectivity and separate database migration access.
+- Run migrations before application rollout and improve worker credential handling.
+- Update generation limits, source checks and deployment documentation.
+
 ## 0.1.4
 
 - Queued podcasts run in parallel, up to the worker limit: a worker keeps its task's queue
