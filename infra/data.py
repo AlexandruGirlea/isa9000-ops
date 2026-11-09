@@ -146,6 +146,8 @@ for name, identity in (
     ("web", web_identity), ("worker", worker_identity), ("watchdog", watchdog_identity)
 ):
     grant(f"{name}-telemetry", identity, s.insights.id, "3913510d-42f4-4e42-8a64-420c390055eb")
+    if s.registry:
+        grant(f"{name}-registry", identity, s.registry, "7f951dda-4ed3-4680-a7ca-43fe172d538d")
 
 bus = servicebus.Namespace(
     "servicebus",

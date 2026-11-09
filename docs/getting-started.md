@@ -22,7 +22,7 @@ it does not host the employee application or private podcasts.
 | A Microsoft Entra tenant and an administrator who can configure an app registration and groups | Employee sign-in, including the local trial |
 | A business owner, a small set of source documents and a pilot audience | The first useful podcast |
 | An Azure subscription, approved Foundry deployments, a company GitHub repository with Actions, Azure CLI, Pulumi and uv | Shared Azure installation |
-| A published isa9000-ops container image and its exact digest | Azure deployment |
+| A published isa9000-ops container image and its exact digest, or an Azure Container Registry for your own build | Azure deployment |
 
 An empty repository or a README alone is not an installable release. Confirm
 source and image availability before scheduling an Azure rollout.

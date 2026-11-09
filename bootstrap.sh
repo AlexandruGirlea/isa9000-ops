@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# != 5 ]]; then
+if [[ $# != 5 && $# != 6 ]]; then
     printf '%s\n' \
-        'Usage: bash bootstrap.sh SUBSCRIPTION LOCATION STATE_RESOURCE_GROUP STORAGE_ACCOUNT OWNER/REPO' \
+        'Usage: bash bootstrap.sh SUBSCRIPTION LOCATION STATE_RESOURCE_GROUP STORAGE_ACCOUNT' \
+        '       OWNER/REPO [REGISTRY]' \
         'Creates state storage, environment resource groups and four scoped OIDC identities.' \
+        'ENVIRONMENTS limits them to some of "dev test prod preview" (default).' \
+        'Dev is required, and prod needs test.' \
+        'With REGISTRY, also creates an Azure Container Registry for images built by releases.' \
+        'REGISTRY_SKU sets its tier: Basic, Standard (default) or Premium.' \
         'Requires explicit approval.'
     exit 1
 fi
@@ -14,8 +19,17 @@ location=$2
 state_group=$3
 storage_account=$4
 repository=$5
+registry=${6:-}
+environments=${ENVIRONMENTS:-dev test prod preview}
+registry_sku=${REGISTRY_SKU:-Standard}
 [[ "$repository" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]
 [[ "$storage_account" =~ ^[a-z0-9]{3,24}$ ]]
+[[ -z "$registry" || "$registry" =~ ^[a-z0-9]{5,50}$ ]]
+# Bash 3.2, the macOS default, ignores a failed [[ ]] under set -e.
+[[ "$environments" =~ ^(dev|test|prod|preview)(\ (dev|test|prod|preview))*$ ]] || exit 1
+[[ " $environments " == *" dev "* ]] || exit 1
+[[ " $environments " != *" prod "* || " $environments " == *" test "* ]] || exit 1
+[[ "$registry_sku" =~ ^(Basic|Standard|Premium)$ ]] || exit 1
 
 # New repositories issue immutable subjects with owner and repository IDs; older ones do not.
 subject_prefix=${GITHUB_OIDC_SUBJECT_PREFIX:-$(gh api \
@@ -41,6 +55,13 @@ az storage account blob-service-properties update --account-name "$storage_accou
     --enable-container-delete-retention true --container-delete-retention-days 30 --output none
 state_scope=$(az storage account show --name "$storage_account" \
     --resource-group "$state_group" --query id --output tsv)
+if [[ -n "$registry" ]]; then
+    az acr create --name "$registry" --resource-group "$state_group" --location "$location" \
+        --sku "$registry_sku" --admin-enabled false \
+        --tags project=isa9000 env=shared managedBy=manual --output none
+    registry_scope=$(az acr show --name "$registry" --resource-group "$state_group" \
+        --query id --output tsv)
+fi
 tenant=$(az account show --query tenantId --output tsv)
 assignable_roles='ba92f5b4-2d11-453d-a403-e96b0029c9fe, 2a2b9908-6ea1-4ae2-8e65-a410df84e7d1,
 3913510d-42f4-4e42-8a64-420c390055eb, 69a216fc-b8fb-44d8-bc22-1f3c2cd27a39,
@@ -61,8 +82,11 @@ rbac_condition="(
             ForAnyOfAnyValues:StringEqualsIgnoreCase {'ServicePrincipal'}
     )
 )"
+# Every environment shares the registry, so its identities may grant only AcrPull there.
+registry_condition=${rbac_condition//"$assignable_roles"/7f951dda-4ed3-4680-a7ca-43fe172d538d}
 
 for environment in dev test prod preview; do
+    [[ " $environments " == *" $environment "* ]] || continue
     identity="isa9000-deploy-$environment"
     az identity create --name "$identity" --resource-group "$state_group" --location "$location" \
         --tags project=isa9000 env="$environment" managedBy=manual --output none
@@ -103,6 +127,18 @@ for environment in dev test prod preview; do
             --assignee-principal-type ServicePrincipal \
             --role 'Role Based Access Control Administrator' --scope "$deploy_scope" \
             --condition "$rbac_condition" --condition-version 2.0 --output none
+        if [[ -n "$registry" ]]; then
+            az role assignment create --assignee-object-id "$principal" \
+                --assignee-principal-type ServicePrincipal \
+                --role 'Role Based Access Control Administrator' --scope "$registry_scope" \
+                --condition "$registry_condition" --condition-version 2.0 --output none
+        fi
+        # Releases push each image once, from the dev environment, and promote its digest.
+        if [[ -n "$registry" && "$environment" == dev ]]; then
+            az role assignment create --assignee-object-id "$principal" \
+                --assignee-principal-type ServicePrincipal --role AcrPush \
+                --scope "$registry_scope" --output none
+        fi
     fi
     az role assignment create --assignee-object-id "$principal" \
         --assignee-principal-type ServicePrincipal --role "$state_role" \
@@ -114,9 +150,12 @@ done
 
 printf '%s\n' "AZURE_TENANT_ID=$tenant" "AZURE_SUBSCRIPTION_ID=$subscription" \
     "AZURE_STORAGE_ACCOUNT=$storage_account" \
-    'Use a different PULUMI_<ENV>_CONFIG_PASSPHRASE environment secret for dev, test and prod.' \
-    'Protect the preview environment with required reviewers; give it only the dev passphrase.' \
+    'Use a different PULUMI_<ENV>_CONFIG_PASSPHRASE environment secret for each environment.' \
+    'If you created preview, protect it with required reviewers; give it only the dev passphrase.' \
     'Use createResourceGroup=false with the environment resource groups created above.' \
-    'Grant Application.ReadWrite.OwnedBy to the three deploy identities before using authApp=create.'
+    'Grant Application.ReadWrite.OwnedBy to each non-preview deploy identity for authApp=create.'
+if [[ -n "$registry" ]]; then
+    printf '%s\n' "AZURE_CONTAINER_REGISTRY=$registry" "isa9000:registry: $registry_scope"
+fi
 az resource list --tag project=isa9000 \
     --query '[].{name:name,type:type,group:resourceGroup}' --output table

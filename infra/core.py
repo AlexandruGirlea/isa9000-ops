@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import re
 import tomllib
 from pathlib import Path
 
@@ -46,7 +47,19 @@ for cidr in allowed_ips:
         raise ValueError("Container Apps allowedIps must contain IPv4 CIDRs")
 
 image_tag = config.require("imageTag")
-image = "ghcr.io/alexandrugirlea/isa9000-ops"
+registry = config.get("registry")
+registry_server = None
+if registry:
+    match = re.fullmatch(
+        r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/"
+        r"Microsoft\.ContainerRegistry/registries/([a-z0-9]{5,50})",
+        registry,
+        re.IGNORECASE,
+    )
+    if not match:
+        raise ValueError("isa9000:registry must be an Azure Container Registry resource ID")
+    registry_server = f"{match[1].lower()}.azurecr.io"
+image = f"{registry_server or 'ghcr.io/alexandrugirlea'}/isa9000-ops"
 image = f"{image}@{image_tag}" if image_tag.startswith("sha256:") else f"{image}:{image_tag}"
 admin_group = config.require_secret("adminGroupId")
 alert_email = config.require("alertEmail")
