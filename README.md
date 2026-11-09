@@ -56,7 +56,7 @@ ops adds company sign-in, group libraries and deployment tooling.
 |---|---|---|
 | **1. Get your copy** | IT | Clone the source for a local trial; keep a company-controlled repository for Azure deployment. |
 | **2. Connect and brand it** | IT + your team | Configure Microsoft sign-in, choose Azure/AI resources, and add your name and logo. |
-| **3. Install and check** | IT | Run the local trial, then deploy and validate the Azure pilot. Approve production only after its requirements are met. |
+| **3. Install and check** | IT | Try the app locally, then deploy to Azure and check sign-in, access and podcast generation with your team. |
 | **4. Create and listen** | Employees | Creators add documents, review the podcast and publish it. Colleagues sign in and press play. |
 
 **Start with the [installation guide](docs/getting-started.md).** It explains
@@ -89,9 +89,9 @@ There is no separate isa9000-operated service holding your library. You own the
 installation and choose its direction as your needs change. Configured cloud
 and AI services still process content under their own terms.
 
-**Current availability:** the local pilot is implemented. Azure deployment
-validation and a general company-domain production setup are still pending.
-The guide distinguishes the working local journey from those rollout prerequisites.
+The [Azure installation guide](docs/azure.md) covers deployment configuration
+and operational checks. For company DNS, gateways and private network integration,
+see [client networking](docs/networking.md).
 
 ## License and security
 

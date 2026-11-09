@@ -4,7 +4,15 @@ import ipaddress
 import socket
 from urllib.parse import urlsplit
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.utils import timezone
+
+
+def link_checks_exceeded(user, count: int) -> bool:
+    key = f"link-checks:{user.pk}:{timezone.now():%Y%m%d%H%M}"
+    cache.add(key, 0, 120)
+    return cache.incr(key, count) > 60
 
 
 def source_url(value):

@@ -47,6 +47,6 @@ WORKDIR /app/web
 FROM base AS production
 RUN /usr/local/bin/python -m pip uninstall --yes pip
 COPY --from=build /opt/venv /opt/venv
-COPY --from=build --chown=app:app /app /app
+COPY --from=build --chown=root:root /app /app
 USER 10001:10001
 WORKDIR /app/web

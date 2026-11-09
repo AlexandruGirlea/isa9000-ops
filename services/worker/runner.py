@@ -15,7 +15,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from azure.core.exceptions import ResourceNotFoundError
-from isa9000.config import load_config, update_config
+from azure.identity import DefaultAzureCredential
+from isa9000.config import AZURE_SCOPE, load_config, update_config
 from isa9000.podcast import load_manifest
 
 from shared import storage, telemetry
@@ -53,6 +54,9 @@ class Run:
         self.stderr = ""
         self.saved_early = False
         self.upload_attempted = False
+        self.credential = DefaultAzureCredential() if "IDENTITY_ENDPOINT" in os.environ else None
+        self.token_file = root / "foundry-token"
+        self.token_lock = threading.Lock()
         self.fields = {
             key: task[key] for key in ("run_id", "course_id", "task", "correlation_id")
         }
@@ -86,6 +90,14 @@ class Run:
             self.cancelled.set()
             self.stop_process()
 
+    def refresh_token(self) -> None:
+        if self.credential:
+            # CLI startup and the heartbeat can both refresh this file.
+            with self.token_lock:
+                temporary = self.token_file.with_suffix(".tmp")
+                temporary.write_text(self.credential.get_token(AZURE_SCOPE).token, encoding="utf-8")
+                temporary.replace(self.token_file)
+
     def heartbeat(self, properties: dict) -> None:
         deadline = time.monotonic() + TASK_SECONDS
         with telemetry.attach(properties):
@@ -95,6 +107,7 @@ class Run:
                     self.stop_process()
                     return
                 try:
+                    self.refresh_token()
                     self.progress({"stage": "heartbeat"})
                 except Exception as error:
                     self.heartbeat_error = error
@@ -159,12 +172,12 @@ class Run:
             if line.strip():
                 self.stderr = line.strip().removeprefix("isa9000: ")
 
-    def cli(self, sources: list[str], config_path: str, record: bool = False) -> int:
+    def cli(self, sources: list[str], config_path: str) -> int:
         command = shlex.split(os.environ.get("ISA9000_CLI", "")) or [
             sys.executable, "-m", "worker.cli"
         ]
         command += ["--progress", "json", "--config", config_path]
-        if self.task["task"] == "create" and not record:
+        if self.task["task"] == "create":
             request = self.task["request"]
             if self.title:
                 request += "\n\nUse this exact podcast title: " + json.dumps(self.title)
@@ -183,8 +196,7 @@ class Run:
             key: os.environ[key] for key in (
                 "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TMP", "TEMP",
                 "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
-                "AZURE_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_CONFIG_DIR",
-                "IDENTITY_ENDPOINT", "IDENTITY_HEADER",
+                "AZURE_TENANT_ID", "AZURE_CONFIG_DIR",
                 "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS",
                 "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_GENAI_USE_VERTEXAI",
                 "ISA9000_STUB_EXIT", "ISA9000_STUB_STEP_DELAY",
@@ -193,6 +205,9 @@ class Run:
         for key in ("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY"):
             if f"ISA9000_{key}" in os.environ:
                 environment[key] = os.environ[f"ISA9000_{key}"]
+        if self.credential:
+            self.refresh_token()
+            environment["ISA9000_FOUNDRY_TOKEN_FILE"] = str(self.token_file)
         self.process = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             start_new_session=True,
@@ -289,10 +304,6 @@ class Run:
             if not self.cancelled.is_set() and not self.heartbeat_error:
                 if self.task["task"] != "render":
                     code = self.cli(sources, config_path)
-                # Without a requested review, record past isa9000's own quality gate.
-                if (code == 3 and self.task["task"] == "create" and not self.task.get("text_only")
-                        and self.folder and not self.cancelled.is_set()):
-                    code = self.cli(sources, config_path, record=True)
             if self.heartbeat_error:
                 raise self.heartbeat_error
             if self.cancelled.is_set():

@@ -22,10 +22,12 @@ config:
   # web 2 vCPU / 4 GiB, 1-5 replicas; workers 2 vCPU / 4 GiB, 0-5 executions;
   # PostgreSQL GeneralPurpose Standard_D2ds_v5, no standby, 128 GiB + autogrow,
   # 35-day geo backups; GZRS blobs with versioning/30-day recovery; Standard queue.
-  # Prod creates a zone-redundant Container Apps environment and dedicated VNet.
+  # Prod creates a zone-redundant Container Apps environment. Every environment gets its own
+  # VNet, which also holds the Postgres private endpoint.
   # Choose non-overlapping ranges before deploying; see docs/azure.md.
   # isa9000:containerAppsVnetCidr: 10.42.0.0/16
   # isa9000:containerAppsSubnetCidr: 10.42.0.0/23
+  # isa9000:postgresSubnetCidr: 10.42.2.0/28
   # isa9000:webMinReplicas: 1
   # isa9000:webMaxReplicas: 5
   isa9000:foundry:

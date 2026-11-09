@@ -54,7 +54,7 @@ jobs:
       - uses: pulumi/actions@96c7761824268174e0d2a4e8c7d75671eebd24a7
       - name: Supply the workload identity to the Pulumi state backend
         run: python .github/azure_token.py
-      - name: Deploy
+      - name: Prepare deployment
         working-directory: infra
         run: |
           case "$STACK" in dev|test|prod) ;; *) exit 1 ;; esac
@@ -75,6 +75,45 @@ jobs:
           if [ -n "$IMAGE_TAG" ]; then
             pulumi config set isa9000:imageTag "$IMAGE_TAG"
           fi
+          # Prepare infrastructure and the migration job without switching live workloads.
+          # Keep legacy database grants until those workloads switch to database-runtime.
+          pulumi up --yes --non-interactive --exclude-dependents \
+            --exclude 'urn:pulumi:**::azure-native:app:ContainerApp::web' \
+            --exclude 'urn:pulumi:**::azure-native:app:Job::worker' \
+            --exclude 'urn:pulumi:**::azure-native:app:Job::watchdog' \
+            --exclude 'urn:pulumi:**::azure-native:app:ContainerAppsAuthConfig::easyauth' \
+            --exclude 'urn:pulumi:**::azure-native:monitor:ScheduledQueryRule::worker-executions' \
+            --exclude 'urn:pulumi:**::azure-native:authorization:RoleAssignment::web-secret-database' \
+            --exclude 'urn:pulumi:**::azure-native:authorization:RoleAssignment::watchdog-secret-database'
+      - name: Migrate database
+        working-directory: infra
+        run: |
+          # The web app's database role cannot change the schema. This job holds the administrator
+          # login: it migrates the schema and creates that role. It runs inside the stack's VNet,
+          # because Postgres has no public access.
+          python ../.github/azure_token.py
+          group=$(pulumi stack output resourceGroup)
+          job=$(pulumi stack output migrateJobName)
+          az extension add --name containerapp --upgrade --yes --only-show-errors
+          execution=$(az containerapp job start --resource-group "$group" --name "$job" \
+            --query name --output tsv)
+          for _ in $(seq 90); do
+            status=$(az containerapp job execution show --resource-group "$group" --name "$job" \
+              --job-execution-name "$execution" --query properties.status --output tsv)
+            case "$status" in
+              Succeeded) exit 0 ;;
+              Running | Processing | "") sleep 10 ;;
+              *) echo "The migration ended as $status." >&2; exit 1 ;;
+            esac
+          done
+          echo "The migration did not finish in 15 minutes." >&2
+          exit 1
+      - name: Roll out application
+        working-directory: infra
+        run: |
+          python ../.github/azure_token.py
+          # Only a successful migration reaches this step. Complete the full stack update,
+          # including switching workloads to the runtime role and removing legacy grants.
           pulumi up --yes --non-interactive
       - name: Smoke test
         working-directory: infra

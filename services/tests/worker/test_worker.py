@@ -5,6 +5,10 @@ import json
 import shlex
 import signal
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -212,6 +216,36 @@ def test_heartbeat_stops_silent_process(monkeypatch, task, local_worker):
     assert runner.run_task(task, recorder) == 0
     assert recorder.result["state"] == "stopped"
     assert kill.call_args.args[1] == signal.SIGTERM
+
+
+def test_concurrent_foundry_token_refreshes(monkeypatch, task, tmp_path):
+    monkeypatch.delenv("IDENTITY_ENDPOINT", raising=False)
+    run = runner.Run(task, Recorder(), tmp_path)
+    run.credential = MagicMock()
+    run.credential.get_token.return_value.token = "test-foundry-token"
+    write_text = Path.write_text
+
+    def slow_write(path, *args, **kwargs):
+        result = write_text(path, *args, **kwargs)
+        # Keep the shared temporary file in place while the other refresh starts.
+        time.sleep(0.02)
+        return result
+
+    monkeypatch.setattr(Path, "write_text", slow_write)
+    start = threading.Barrier(2)
+
+    def refresh():
+        start.wait(timeout=5)
+        run.refresh_token()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(refresh) for _ in range(2)]
+        for future in futures:
+            future.result(timeout=5)
+
+    assert run.token_file.read_text(encoding="utf-8") == "test-foundry-token"
+    assert run.credential.get_token.call_count == 2
+    assert not run.token_file.with_suffix(".tmp").exists()
 
 
 @pytest.mark.parametrize("invalid", [

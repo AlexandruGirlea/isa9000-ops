@@ -11,23 +11,27 @@ address; they will not use GitHub or install the software themselves.
 
 ## Before provisioning
 
-**The current supported starting point is an Azure pilot on a Container Apps
-HTTPS address.** Azure application deployment is not yet validated end to end.
+**The supplied Azure stack uses public HTTPS ingress on an Azure Container Apps
+hostname, protected by Microsoft Entra sign-in.** It provides `dev`, `test` and
+`prod` resource profiles.
 
-Company-domain production onboarding must be completed before treating this as a
-production recipe. Custom domains, supplied certificates, internal ingress and
-private Postgres networking are not yet supported by the provisioning code.
+The provisioning code accepts `ingress: public`. Custom domains, supplied
+certificates, internal ingress and Postgres inside a company-supplied network
+require additional infrastructure integration; see [Client networking](networking.md).
 
 The deployment uses the published `ghcr.io/alexandrugirlea/isa9000-ops` image by
 default. A company copy can instead build, test and scan its own image in its
 release workflow and deploy it from its own Azure Container Registry; see
 [step 3](#3-bootstrap-azure-deployment-access).
 
-Deployments use Azure HTTPS ingress and certificates. The production Container
-Apps VNet supports zone redundancy; it does not provide a WAF or private endpoints
-for the database, queue, storage or vault.
-If a company domain or private networking is required from day one, complete that
-implementation before provisioning. [Discuss a pilot with us](https://girlea.ro).
+Deployments use Azure HTTPS ingress and certificates. Every environment's Container
+Apps VNet hosts private endpoints for Postgres, Blob storage, Key Vault and any
+Foundry account created by the stack; these services have public access disabled.
+Production also supports zone redundancy. The stack does not provide a WAF or a
+private endpoint for Service Bus. Reused Foundry resources retain their owner's
+network configuration.
+If your organization requires a company domain or additional private networking,
+include that integration in your deployment plan before provisioning.
 
 For enterprise production, IT supplies the network ranges, private DNS and approved
 admin hostname. The worker must have no route to Postgres or unrelated company
@@ -36,10 +40,10 @@ plus approved public source access. URL validation is an additional control, not
 a sandbox for a compromised document parser. Process/identity isolation remains
 required before trusting untrusted parsers with sensitive deployment credentials.
 
-Production onboarding also needs runtime/migration database roles, a privileged
-administrator group, upload malware scanning with a
-scan-result gate, and tested capacity/recovery settings. These are explicit
-prerequisites, not controls already provisioned by the current pilot template.
+For production onboarding, configure a privileged administrator group and upload
+malware scanning with a scan-result gate, and test capacity and recovery settings.
+Administrator group governance and malware scanning are managed by your organization;
+the supplied stack does not provision them.
 The image release gate blocks HIGH and CRITICAL findings; resolve or review
 remaining vendor findings before an approved rollout.
 
@@ -70,18 +74,23 @@ asynchronous, so recent writes can be lost during a regional disaster. Service B
 Standard has no Private Link or configured cross-region queue replication. Test
 restore procedures, load and AI quotas before relying on the installation.
 
-Production creates an external Container Apps environment in its own VNet. Default
+Every environment creates an external Container Apps environment in its own VNet;
+production adds zone redundancy. Default
 ranges are `10.42.0.0/16` for the VNet and `10.42.0.0/23` for the subnet; override
 `containerAppsVnetCidr` and `containerAppsSubnetCidr` before creation if they overlap
 your network. The IPv4 subnet must be within the VNet and at least /27 in size. It
-is delegated to `Microsoft.App/environments`. Register `Microsoft.Network` along
+is delegated to `Microsoft.App/environments`. The database's private endpoint needs a
+second, undelegated subnet: by default the /28 right after the first one; set
+`postgresSubnetCidr` to use another range inside the VNet. Register `Microsoft.Network` along
 with the other resource providers. Choose a region supporting Container Apps zones,
 GZRS, the database SKU and geo backups. See Microsoft's
 [zone redundancy requirements](https://learn.microsoft.com/en-us/azure/container-apps/how-to-zone-redundancy).
 
 For existing installations, zone redundancy and the infrastructure subnet need a
 new Container Apps environment and a planned cutover, including the changed host
-and Entra callbacks. Geo database backups must be configured at server creation;
+and Entra callbacks; dev/test environments created without a VNet also need this
+cutover. Plan a maintenance window for the network and database-role transition.
+Geo database backups must be configured at server creation;
 storage redundancy conversions depend on the existing account and region. Database
 disks cannot shrink. Review replacement/conversion steps and preserve data before
 applying these defaults to an existing stack; do not bypass resource protection.
@@ -97,10 +106,11 @@ Existing stack overrides such as `webMinReplicas`, `webMaxReplicas`, `postgresSk
 Every environment creates its own Key Vault in the application resource group.
 Database, Django, callback, Entra and payload-encryption credentials use managed
 identity references. The worker can read only the callback secret and payload
-key. The vault uses RBAC, 90-day recovery, purge protection and audit logging;
+key. The web app and watchdog log in to Postgres as the restricted role
+`isa9000_app`; only the `migrate` job can read the administrator login. The vault uses RBAC, 90-day recovery, purge protection and audit logging;
 production also has Pulumi deletion protection. No extra client vault setup is
-required. Its endpoint remains publicly addressable but authenticated for the
-pilot; private connectivity follows the client networking guide.
+required. Its public network access is disabled; workloads reach it through the
+stack's private endpoint. Company network integration follows the client networking guide.
 
 Pulumi exports `keyVaultName` and `keyVaultId` for network integration. Existing
 bootstrap identities need their role-assignment condition updated to include
@@ -189,7 +199,7 @@ deployments from `infra/Pulumi.example.yaml` and your platform team's settings.
 
 `ingress: public` means a public HTTPS endpoint protected by Entra sign-in.
 It does not mean anonymous podcast access or private network isolation.
-Postgres currently uses an Azure-services firewall exception.
+Postgres has no public access; the apps reach it through a private endpoint in their VNet.
 
 Deployment inputs belong in GitHub environment secrets and private Pulumi state;
 runtime credentials are stored in the application's Key Vault.
@@ -363,8 +373,10 @@ git tag v0.1.0 && git push origin v0.1.0
 Use an unused version, not this example blindly. In a company copy, the workflow
 uses the configured image digest. With `AZURE_CONTAINER_REGISTRY` set, it first
 builds the image from the tagged source, runs the tests, vulnerability scan and SBOM,
-pushes it to your registry and uses that digest. It deploys dev, runs a smoke check,
-then promotes the same digest through test and approved prod. With the repository
+pushes it to your registry and uses that digest. For each environment it prepares
+infrastructure and the `migrate` job, waits for migration success, then updates
+the web, worker and watchdog workloads and runs a smoke check. It promotes the same
+digest through dev, test and approved prod. With the repository
 variable `LAST_ENVIRONMENT` set to `dev` or `test`, it stops there and shows the later
 environments as skipped. GitHub Actions shows progress and the deployment output
 includes `webUrl`.
@@ -375,9 +387,9 @@ release skips that step in a private repository owned by a user; in other privat
 repositories without Enterprise Cloud, it reports an error and the release continues
 without one.
 
-Leave the production approval gate closed until company-domain support and the
-acceptance checks below are complete. A passing health endpoint alone is not
-production acceptance.
+Approve production after completing your organization's domain and networking
+requirements and the acceptance checks below. Include authentication, access
+controls and podcast generation in acceptance alongside endpoint health.
 
 ## 6. Validate with your people and documents
 

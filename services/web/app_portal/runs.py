@@ -104,6 +104,13 @@ def dispatch(run):
         )
 
 
+def daily_limit_reached(user) -> bool:
+    today = timezone.now().date()
+    return Run.objects.filter(requested_by=user, created__date=today).count() >= (
+        settings.DAILY_RUNS_PER_USER
+    )
+
+
 def new_run(
     course, user, task, request="", sources=None, follow_links=False, run_id=None,
     generation_settings=None, text_only=False,
@@ -112,9 +119,7 @@ def new_run(
     Course.objects.select_for_update().get(pk=course.pk)
     if course.runs.filter(status__in=["queued", "running"]).exists():
         raise ValueError("This podcast already has a run in progress.")
-    if Run.objects.filter(requested_by=user, created__date=timezone.now().date()).count() >= (
-        settings.DAILY_RUNS_PER_USER
-    ):
+    if daily_limit_reached(user):
         raise ValueError("Your daily run limit has been reached.")
     steps = (
         STEPS

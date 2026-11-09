@@ -36,7 +36,7 @@ config:
   isa9000:workerPollingSeconds: 10
   isa9000:webMinReplicas: 0
   isa9000:dailyRunsPerUser: 5
-  isa9000:maxUploadMb: 20
-  isa9000:maxFiles: 10
+  isa9000:maxUploadMb: 10
+  isa9000:maxFiles: 5
   isa9000:logRetentionDays: 30
   isa9000:budgetMonthly: 100
