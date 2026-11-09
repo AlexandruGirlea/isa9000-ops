@@ -39,7 +39,7 @@
       </div>
       {{ form.links.errors }}
       <label class="toggle">{{ form.follow_links }} Also read pages linked from these URLs</label>
-      <p class="hint" style="margin:4px 0 0">Up to 25 pages from each URL, in the same section of its site. Does not apply to uploaded files.</p>
+      <p class="hint" style="margin:4px 0 0">Up to 25 linked pages in total, from the same site (including its other subdomains). Other sites are not followed. Does not apply to uploaded files.</p>
       {{ form.follow_links.errors }}
       <div class="upload-area"><label for="id_uploads"><i class="bi bi-upload" aria-hidden="true"></i> Upload documents</label>
         {{ form.uploads }}

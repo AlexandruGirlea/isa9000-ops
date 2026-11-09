@@ -349,6 +349,8 @@ def manage(request, course_id):
             "cover_form": cover_form,
             "approval_form": approval_form,
             "runs": course.runs.all(),
+            "prompt": course.runs.filter(task="create").order_by("created")
+            .values_list("request", flat=True).first(),
             "active": active_run is not None,
             "active_run": active_run,
         },
@@ -405,7 +407,8 @@ def run_page(request, run_id):
                     task = "record" if course.manifest else "create"
                     retry = new_run(
                         course, request.user, task, run.request, run.sources, run.follow_links,
-                        generation_settings=run.generation_settings, text_only=run.text_only,
+                        generation_settings=run.generation_settings,
+                        text_only="text_only" in request.POST,
                     )
                     return redirect("run", run_id=retry.id)
                 raise ValueError("This run cannot perform that action.")

@@ -22,10 +22,10 @@ repository=$5
 registry=${6:-}
 environments=${ENVIRONMENTS:-dev test prod preview}
 registry_sku=${REGISTRY_SKU:-Standard}
-[[ "$repository" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]
-[[ "$storage_account" =~ ^[a-z0-9]{3,24}$ ]]
-[[ -z "$registry" || "$registry" =~ ^[a-z0-9]{5,50}$ ]]
 # Bash 3.2, the macOS default, ignores a failed [[ ]] under set -e.
+[[ "$repository" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]] || exit 1
+[[ "$storage_account" =~ ^[a-z0-9]{3,24}$ ]] || exit 1
+[[ -z "$registry" || "$registry" =~ ^[a-z0-9]{5,50}$ ]] || exit 1
 [[ "$environments" =~ ^(dev|test|prod|preview)(\ (dev|test|prod|preview))*$ ]] || exit 1
 [[ " $environments " == *" dev "* ]] || exit 1
 [[ " $environments " != *" prod "* || " $environments " == *" test "* ]] || exit 1

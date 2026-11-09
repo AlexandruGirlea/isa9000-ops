@@ -87,6 +87,8 @@ disks cannot shrink. Review replacement/conversion steps and preserve data befor
 applying these defaults to an existing stack; do not bypass resource protection.
 
 Dev/test retain small compute, Burstable PostgreSQL, LRS storage and a Basic queue.
+Their web app scales to zero when idle, so the first request afterwards waits for a cold
+start; set `isa9000:webMinReplicas: 1` to keep one warm copy.
 Existing stack overrides such as `webMinReplicas`, `webMaxReplicas`, `postgresSku` and
 `postgresTier` take precedence over defaults; review them when adopting this profile.
 
@@ -308,7 +310,13 @@ to the registry name from bootstrap.
 
 Use a different state-encryption passphrase for each environment. When initializing
 a stack locally, use that environment's matching passphrase and backend.
-The setup operator needs Blob Data Contributor access to the state container.
+The setup operator needs Storage Blob Data Contributor access to the state container.
+To grant it to the signed-in account for dev:
+
+```bash
+az role assignment create --assignee-object-id "$(az ad signed-in-user show --query id --output tsv)" --assignee-principal-type User --role "Storage Blob Data Contributor" --scope "/subscriptions/YOUR-SUBSCRIPTION-ID/resourceGroups/YOUR-STATE-RESOURCE-GROUP/providers/Microsoft.Storage/storageAccounts/youruniquestorageaccount/blobServices/default/containers/pulumi-dev"
+```
+
 Set `AZURE_STORAGE_ACCOUNT` and `PULUMI_CONFIG_PASSPHRASE` in the terminal from
 the approved settings/secret store, then run from the repository root:
 
@@ -362,8 +370,10 @@ environments as skipped. GitHub Actions shows progress and the deployment output
 includes `webUrl`.
 
 The release also attests the build provenance of an image it pushes. GitHub offers
-artifact attestations in private repositories only on GitHub Enterprise Cloud;
-elsewhere that step reports an error and the release continues without one.
+artifact attestations in private repositories only on GitHub Enterprise Cloud. The
+release skips that step in a private repository owned by a user; in other private
+repositories without Enterprise Cloud, it reports an error and the release continues
+without one.
 
 Leave the production approval gate closed until company-domain support and the
 acceptance checks below are complete. A passing health endpoint alone is not
@@ -380,7 +390,8 @@ Open the dev `webUrl` and complete [Create and listen](using.md):
 4. Confirm that someone outside the group cannot open its pages or request media.
 5. Check the logo, name, review workflow, run history and failure messages.
 6. Find the run's reference ID in Application Insights and verify alerts and
-   retention with operations.
+   retention with operations. Azure Monitor emails the `alertEmail` address a
+   verification code; verify it, or alert emails are not sent.
 7. Verify the worker's callbacks, managed identities and queue scaling in Azure.
 
 Repeat in test with the **same image digest**. IT and the business owner sign off
