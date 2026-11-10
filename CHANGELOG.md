@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.5
 
 - Add private Azure service connectivity and separate database migration access.
 - Run migrations before application rollout and improve worker credential handling.

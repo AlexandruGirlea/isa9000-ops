@@ -100,6 +100,10 @@ Original project code is licensed under [Apache-2.0](LICENSE), with attribution 
 [third-party notices](THIRD_PARTY_NOTICES.md) and the
 [licensing and security guide](docs/licensing-and-security.md).
 
+You can rebrand it freely. We ask, but do not require, that you keep the
+*Powered by isa9000* credit, which links to the
+[isa9000 GitHub page](https://github.com/AlexandruGirlea/isa9000), so more teams find the project.
+
 Report vulnerabilities privately using [SECURITY.md](SECURITY.md).
 [Contributions](CONTRIBUTING.md) follow the same project license and the
 [Code of Conduct](CODE_OF_CONDUCT.md). No commercial support SLA is implied.

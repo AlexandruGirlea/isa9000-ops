@@ -15,7 +15,8 @@ config:
   isa9000:authApp: create
   isa9000:groupClaims: SecurityGroup
   # Asks Microsoft Graph for groups when a token has too many to list. Grant admin consent
-  # first, or Microsoft can block every sign-in; see group overage in docs/operator-guide.md.
+  # first, or Microsoft can block every sign-in; see group overage in
+  # docs/operator-guide/sign-in-and-access.md.
   # isa9000:graphGroups: true
   isa9000:workerMaxExecutions: 5
   # For production set environment: prod. Defaults then become:

@@ -26,7 +26,7 @@ it does not host the employee application or private podcasts.
 
 An empty repository or a README alone is not an installable release. Confirm
 source and image availability before scheduling an Azure rollout.
-[Azure deployment requirements →](azure.md#before-provisioning)
+[Azure deployment requirements →](azure/before-provisioning.md)
 
 ## 1. Get the source
 
@@ -153,14 +153,14 @@ or company network integration, review the infrastructure changes in
 | Symptom | What to check |
 |---|---|
 | Microsoft sign-in returns an error | Exact Web redirect URI, tenant/client IDs, secret value/expiry and group claims |
-| **Admin** is missing | Administrator group object ID and your membership in the token; sign out and back in after Entra changes. With too many groups, use the [recovery command](operator-guide.md#administrator-access-and-recovery) |
+| **Admin** is missing | Administrator group object ID and your membership in the token; sign out and back in after Entra changes. With too many groups, use the [recovery command](operator-guide/sign-in-and-access.md#administrator-access-and-recovery) |
 | No libraries appear | Enable the group under **Admin → Libraries / Entra groups**, then publish its first podcast. Viewers see no card for an empty library |
-| A notice asks you to request local library access | The sign-in token has no usable group list, usually because of too many groups. See [group overage](operator-guide.md#group-overage) |
+| A notice asks you to request local library access | The sign-in token has no usable group list, usually because of too many groups. See [group overage](operator-guide/sign-in-and-access.md#group-overage) |
 | No **Add podcast** button | Creator role or administrator membership |
 | Audio is silent | The default worker is a simulation; complete step 5 for real generation |
 | Containers fail to start | Run `make ps` and `make logs s=web`; check free ports and Docker resources |
 
 The Service Bus emulator uses SQL Server. On Apple Silicon it needs x86
 emulation; Microsoft does not support SQL Server under CPU emulation.
-See [local operating notes](operator-guide.md#9-run-locally).
+See [local operating notes](operator-guide/run-locally.md).
 `make down` stops the local stack and keeps data; `make clean` deletes its data.

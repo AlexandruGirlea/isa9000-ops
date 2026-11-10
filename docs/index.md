@@ -44,7 +44,8 @@ and ongoing operation. Employees install nothing.
 
 Call it *Contoso Learning*, *The Team Briefing*, or something only your team
 would come up with. Your logo, colors and name appear across the portal and
-podcast pages. The footer simply says **Powered by isa9000** by default.
+podcast pages. The footer simply says **Powered by isa9000** by default; please keep
+it, though it is optional.
 
 [Set your name, logo and colors →](branding.md)
 
@@ -65,6 +66,6 @@ Try the app locally with a small set of documents and a pilot audience, then use
 your Azure environment for a shared installation.
 
 The [installation guide](getting-started.md) covers local setup, Azure deployment
-and checks for your organization's rollout. The [Azure guide](azure.md#before-provisioning)
+and checks for your organization's rollout. The [Azure guide](azure/before-provisioning.md)
 describes the supplied infrastructure and network integration options.
 [Talk to us](https://girlea.ro) about planning your organization's pilot.

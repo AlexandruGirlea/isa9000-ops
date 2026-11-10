@@ -61,8 +61,12 @@ narrator names, greetings and pronunciation settings for their podcasts.
 Provider, model deployments and credentials remain under IT's control.
 
 The visible footer makes no copyright claim over your company's content.
-`powered_by = ""` hides the attribution if your organization prefers.
 Source and dependency license notices remain separate from the visible branding.
+
+**Please keep the "Powered by isa9000" credit.** It links to the
+[isa9000 GitHub page](https://github.com/AlexandruGirlea/isa9000) and helps more
+teams find the project. It is optional: Apache-2.0 does not require it, and
+`powered_by = ""` removes it.
 
 Never put credentials in the shared brand file. Azure model mappings belong in
 stack settings; local overrides belong in the private TOML described in the
