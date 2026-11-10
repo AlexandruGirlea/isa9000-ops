@@ -47,7 +47,7 @@ Local Compose is for a loopback trial and includes public emulator credentials.
 Real Entra configuration is still required. Do not reuse emulator credentials or
 expose that stack as a production installation.
 
-The [Azure prerequisites](docs/azure.md#before-provisioning) and
+The [Azure prerequisites](docs/azure/before-provisioning.md) and
 [networking guide](docs/networking.md) identify unfinished production integration
 and validation. This policy does not assert certification, regulatory compliance
 or readiness for an organization's production environment.

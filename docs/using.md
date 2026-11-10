@@ -24,7 +24,7 @@ straight away; viewers see it after a podcast is published.
 
 Someone in too many Entra groups can see a notice with a reference ID instead of their
 libraries. Find them under **Admin → Users** and add **Local library access**; see
-[group overage](operator-guide.md#group-overage).
+[group overage](operator-guide/sign-in-and-access.md#group-overage).
 
 New accounts are active automatically. To stop someone using the application,
 open **Admin → Users → the person**, clear **Active** and save. This blocks
