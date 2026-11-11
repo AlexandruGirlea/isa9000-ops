@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7
+
+- isa9000 0.3.4: a PDF read that hits a server or connection error on Azure is retried, up to
+  4 times, instead of failing the podcast.
+
 ## 0.1.6
 
 - isa9000 0.3.3: a long PDF read no longer loses its connection on Azure, and it streams its
