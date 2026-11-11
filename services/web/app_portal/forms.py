@@ -6,6 +6,7 @@ from core.security import link_checks_exceeded, source_url
 from django import forms
 from django.conf import settings
 from isa9000.config import VOICES, load_config
+from isa9000.links import MAX_SOURCES
 from pydantic import ValidationError
 
 from app_portal.runs import daily_limit_reached
@@ -163,14 +164,23 @@ class CreateForm(GenerationForm):
         links = list(dict.fromkeys(
             line.strip() for line in self.cleaned_data["links"].splitlines() if line.strip()
         ))
-        if len(links) > 20:
-            raise forms.ValidationError("Add at most 20 source links.")
+        if len(links) > MAX_SOURCES:
+            raise forms.ValidationError(f"Add at most {MAX_SOURCES} source links.")
         if links and self.user:
             if daily_limit_reached(self.user):
                 raise forms.ValidationError("Your daily run limit has been reached.")
             if link_checks_exceeded(self.user, len(links)):
                 raise forms.ValidationError("Too many link checks. Wait a minute and try again.")
         return [source_url(link) for link in links]
+
+    def clean(self):
+        cleaned = super().clean()
+        sources = len(cleaned.get("links") or []) + len(cleaned.get("uploads") or [])
+        if sources > MAX_SOURCES:
+            self.add_error(
+                None, f"Add at most {MAX_SOURCES} sources: links and files together."
+            )
+        return cleaned
 
 
 class TitleForm(forms.Form):
