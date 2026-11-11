@@ -21,6 +21,8 @@ from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
+from isa9000.links import MAX_SOURCES, MAX_URL_CHARS
+from isa9000.sources import MAX_PDF_PAGES
 
 from app_portal.covers import CoverForm, update_cover
 from app_portal.forms import ApprovalForm, CreateForm, TitleForm
@@ -46,6 +48,10 @@ HISTORY_LABELS = {
 FAILURE_MESSAGE = (
     "Something went wrong and this podcast could not be finished. "
     "Your administrators have been notified."
+)
+SOURCE_PROBLEMS = (
+    "fix these sources first:", " is too large (", "no readable text was found",
+    "the sources may not cover the request",
 )
 
 
@@ -143,6 +149,9 @@ def create(request, group_id):
             "form": form,
             "max_files": settings.MAX_FILES,
             "max_upload_mb": settings.MAX_UPLOAD_MB,
+            "max_sources": MAX_SOURCES,
+            "max_url_chars": MAX_URL_CHARS,
+            "max_pdf_pages": MAX_PDF_PAGES,
         },
     )
 
@@ -448,6 +457,10 @@ def run_page(request, run_id):
     ) and run.course.status != "ready"
     # Raw errors and engine output stay in the admin; they can expose internal details.
     failure = FAILURE_MESSAGE if run.status == "failed" else ""
+    if failure and run.error_source == "isa9000" and any(
+        problem in run.error for problem in SOURCE_PROBLEMS
+    ):
+        failure = run.error
     activity = run.log if request.user.is_superuser else []
     if request.headers.get("Accept") == "application/json":
         return JsonResponse(

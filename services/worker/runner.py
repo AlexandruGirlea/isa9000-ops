@@ -54,6 +54,7 @@ class Run:
         self.stderr = ""
         self.saved_early = False
         self.upload_attempted = False
+        self.uploads: list[Path] = []
         self.credential = DefaultAzureCredential() if "IDENTITY_ENDPOINT" in os.environ else None
         self.token_file = root / "foundry-token"
         self.token_lock = threading.Lock()
@@ -143,6 +144,7 @@ class Run:
             raise WorkerError(
                 "Uploaded sources are no longer available; uploads expire after 7 days."
             ) from None
+        self.uploads = downloaded
         local = dict(zip(uploads, downloaded, strict=True))
         return [str(local.get(source, source)) for source in sources]
 
@@ -317,8 +319,10 @@ class Run:
                 reason = self.stderr.partition("review before recording: ")[2]
                 result.update(state="needs_review", error=reason.partition(". Read the")[0])
             else:
-                result.update(error=self.error or self.stderr or f"isa9000 exited with {code}.",
-                              error_source="isa9000")
+                error = self.error or self.stderr or f"isa9000 exited with {code}."
+                for path in self.uploads:
+                    error = error.replace(str(path), path.name.partition("-")[2] or path.name)
+                result.update(error=error, error_source="isa9000")
             # A canceled run keeps nothing: this workspace disappears with the task.
             if result["state"] != "stopped":
                 self.save()

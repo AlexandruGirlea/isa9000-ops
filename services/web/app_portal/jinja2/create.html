@@ -33,9 +33,9 @@
       <div id="links-fallback"><label for="id_links">Source links, one per line</label>{{ form.links }}</div>
       <div id="source-editor" hidden>
         <label class="visually-hidden" for="source">Source URL</label>
-        <div class="add"><input id="source" type="text" inputmode="url" placeholder="https://…" autocomplete="off" maxlength="4096"><button id="add-source" type="button" class="ghost">Add</button></div>
+        <div class="add"><input id="source" type="text" inputmode="url" placeholder="https://…" autocomplete="off" maxlength="{{ max_url_chars }}"><button id="add-source" type="button" class="ghost">Add</button></div>
         <ul id="sources" aria-live="polite"></ul>
-        <p id="source-error" class="warn" role="alert" hidden>Add at most 20 source links.</p>
+        <p id="source-error" class="warn" role="alert" hidden>Add at most {{ max_sources }} source links.</p>
       </div>
       {{ form.links.errors }}
       <label class="toggle">{{ form.follow_links }} Also read pages linked from these URLs</label>
@@ -43,7 +43,7 @@
       {{ form.follow_links.errors }}
       <div class="upload-area"><label for="id_uploads"><i class="bi bi-upload" aria-hidden="true"></i> Upload documents</label>
         {{ form.uploads }}
-        <p class="hint" style="margin:10px 0 0">PDF, TXT, MD or HTML · Up to {{ max_files }} files, {{ max_upload_mb }} MB each</p>
+        <p class="hint" style="margin:10px 0 0">PDF, TXT, MD or HTML · Up to {{ max_files }} files, {{ max_upload_mb }} MB each · PDFs up to {{ max_pdf_pages }} pages · At most {{ max_sources }} sources, links and files together</p>
       </div>
       {{ form.uploads.errors }}<p id="upload-error" class="warn" role="alert" hidden></p>
     </section>
@@ -103,10 +103,10 @@
   document.getElementById('source-editor').hidden = false;
   function refresh() {
     links.value = [...sources.keys()].join('\n');
-    const invalidFiles = files.files.length > {{ max_files }} || [...files.files].some(file => file.size > {{ max_upload_mb }} * 1024 * 1024 || !/\.(pdf|txt|md|html)$/i.test(file.name));
+    const invalidFiles = files.files.length > {{ max_files }} || sources.size + files.files.length > {{ max_sources }} || [...files.files].some(file => file.size > {{ max_upload_mb }} * 1024 * 1024 || !/\.(pdf|txt|md|html)$/i.test(file.name));
     const error = document.getElementById('upload-error');
     error.hidden = !invalidFiles;
-    error.textContent = 'Choose up to {{ max_files }} PDF, TXT, MD or HTML files, {{ max_upload_mb }} MB each.';
+    error.textContent = 'Choose up to {{ max_files }} PDF, TXT, MD or HTML files, {{ max_upload_mb }} MB each, and at most {{ max_sources }} sources with the links.';
     create.disabled = !document.getElementById('id_request').value.trim() || !(sources.size || files.files.length) || [...sources.values()].some(source => !source.ok) || invalidFiles || !!input.value.trim();
     document.getElementById('create-hint').textContent = create.disabled ? 'Add a learning brief and valid sources to continue.' : 'Ready to create. You can follow progress on the next screen.';
     create.textContent = review.checked ? 'Create transcripts' : 'Create podcast';
@@ -116,7 +116,7 @@
   async function addSource(value) {
     value = value.trim();
     if (!value || sources.has(value)) return;
-    if (sources.size >= 20) { document.getElementById('source-error').hidden = false; return; }
+    if (sources.size >= {{ max_sources }}) { document.getElementById('source-error').hidden = false; return; }
     document.getElementById('source-error').hidden = true;
     const source = {ok: false};
     sources.set(value, source);

@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from isa9000.links import MAX_URL_CHARS
 
 
 def link_checks_exceeded(user, count: int) -> bool:
@@ -31,7 +32,7 @@ def source_url(value):
             raise ValueError
         host = host.rstrip(".").lower()
         port = 443 if parsed.scheme == "https" else 80
-        if parsed.port not in {None, port} or len(value) > 4096:
+        if parsed.port not in {None, port} or len(value) > MAX_URL_CHARS:
             raise ValueError
         try:
             address = ipaddress.ip_address(host)
