@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6
+
+- isa9000 0.3.3: a long PDF read no longer loses its connection on Azure, and it streams its
+  answer, so it no longer fails at the 10-minute timeout.
+- Source limits match isa9000: at most 10 sources per podcast, links and files together, links of
+  at most 2,000 characters, and PDFs of at most 18 MB and 100 pages. The create page shows them.
+- A failed run shows the reason when its creator can fix it: a source that cannot be read, too
+  many sources or a PDF that is too large. Other failures keep the generic message.
+
 ## 0.1.5
 
 - Add private Azure service connectivity and separate database migration access.
