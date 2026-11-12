@@ -46,7 +46,7 @@
     <div data-transcript-text hidden></div>
     <form id="transcript-editor-form" hidden>
       <div class="transcript-edit-warning" data-transcript-published hidden>
-        <p>This podcast is published. Saving an edit removes it from the library until you approve the updated transcript and record new audio.</p>
+        <p>This podcast is published. Saving an edit removes it from the library until you approve the updated transcript and record new audio. Only this episode is recorded again; the others keep their audio.</p>
         <label><input type="checkbox" data-transcript-unpublish><span>I understand this podcast will be unpublished.</span></label>
       </div>
       <label class="visually-hidden" for="transcript-editor">Transcript text</label>
@@ -96,7 +96,7 @@
     unpublish.required = value && data.published === true;
     unpublish.checked = false;
     status.hidden = true;
-    reason.textContent = value ? 'Changes need your approval before new audio is recorded.' : (data.edit_reason || 'Read the transcript or edit its wording before approval.');
+    reason.textContent = value ? 'Changes need your approval. Then only this episode is recorded again.' : (data.edit_reason || 'Read the transcript or edit its wording before approval.');
     if (value) { editor.value = data.text; editor.focus(); }
   }
   async function requestClose() {

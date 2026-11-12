@@ -2,7 +2,13 @@
   <div>
     <p class="review-eyebrow">Awaiting your approval</p>
     <h2 id="review-heading">Review, then record</h2>
-    <p class="hint">Read the transcripts and review notes. When you approve, isa9000 records the audio and publishes this podcast to <strong>{{ course.group }}</strong>{% for library in course.shared_groups.all() %}, <strong>{{ library }}</strong>{% endfor %}.</p>
+    {% set all_episodes = course.manifest.get('episodes', []) %}
+    {% set to_record = all_episodes|rejectattr('audio')|list %}
+    {% set libraries %}<strong>{{ course.group }}</strong>{% for library in course.shared_groups.all() %}, <strong>{{ library }}</strong>{% endfor %}{% endset %}
+    <p class="hint" id="review-scope">Read the transcripts and review notes.
+      {% if not to_record %}Every episode already has audio, so approving only publishes this podcast to {{ libraries }}.
+      {% elif to_record|length == all_episodes|length %}When you approve, isa9000 records the audio and publishes this podcast to {{ libraries }}.
+      {% else %}When you approve, isa9000 records new audio only for {{ 'episode' if to_record|length == 1 else 'episodes' }} {% for episode in to_record %}{{ '%02d'|format(episode.number|int) }}{{ ', ' if not loop.last }}{% endfor %}. The other {{ 'episode keeps its' if all_episodes|length - to_record|length == 1 else 'episodes keep their' }} audio. It then publishes this podcast to {{ libraries }}.{% endif %}</p>
     {% set review = course.manifest.get('review', {}) %}
     {% if review.get('edited') %}<p class="hint">Transcripts have been edited since automated review. Check your changes before approving; the earlier checks do not cover the edited text.</p>
     {% elif review.get('score') is not none %}<p class="review-score">AI review <strong>{{ review.score }}/10</strong>{% if review.get('approved') == false %}<span>Human review requested</span>{% endif %}</p>{% endif %}

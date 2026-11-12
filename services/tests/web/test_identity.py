@@ -7,6 +7,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from app_portal.models import EntraGroup, LocalTestUser, Profile
+from django.contrib.admin.models import LogEntry
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.backends.db import SessionStore
 from django.contrib.sessions.models import Session
@@ -35,10 +36,103 @@ class IdentityTests(PortalCase):
         )
         self.assertEqual(response.status_code, 200)
         user = get_user_model().objects.get(username=oid)
-        self.assertEqual(user.profile.role, "viewer")
+        self.assertFalse(user.profile.creator_libraries.exists())
         self.assertTrue(user.is_superuser)
         unknown = EntraGroup.objects.get(pk=ADMIN)
         self.assertEqual((unknown.name, unknown.status), (ADMIN, "hidden"))
+
+    def test_signin_does_not_promote_an_existing_viewer(self):
+        self.profile.creator_libraries.clear()
+        self.assertEqual(self.client.get("/libraries/", **self.headers).status_code, 200)
+        self.assertFalse(self.profile.creator_libraries.exists())
+        self.assertEqual(
+            self.client.get(f"/libraries/{SALES}/new/", **self.headers).status_code, 404,
+        )
+
+    def test_precreated_creator_keeps_their_libraries_on_first_signin(self):
+        oid = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+        user = get_user_model().objects.create_user(username=oid)
+        profile = Profile.objects.create(user=user)
+        profile.creator_libraries.add(self.sales)
+        headers = token(oid, [SALES])
+        self.assertEqual(self.client.get("/libraries/", **headers).status_code, 200)
+        self.assertEqual(list(profile.creator_libraries.all()), [self.sales])
+        self.assertEqual(list(profile.groups.all()), [self.sales])
+        self.assertEqual(self.client.get(f"/libraries/{SALES}/new/", **headers).status_code, 200)
+
+    def test_a_creator_prepared_before_the_upgrade_gets_the_libraries_of_one_sign_in(self):
+        oid = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+        user = get_user_model().objects.create_user(username=oid)
+        profile = Profile.objects.create(user=user, role="creator")
+        unknown = "77777777-7777-4777-8777-777777777777"
+        # Nothing to give yet: this sign-in has no enabled library.
+        self.assertEqual(self.client.get("/libraries/", **token(oid, [unknown])).status_code, 200)
+        profile.refresh_from_db()
+        self.assertEqual((profile.role, profile.creator_libraries.count()), ("creator", 0))
+        page = self.client.get("/admin/app_portal/profile/", **administrator())
+        self.assertContains(page, "Creator from next sign-in")
+        headers = token(oid, [SALES, unknown])
+        self.assertEqual(self.client.get(f"/libraries/{SALES}/new/", **headers).status_code, 200)
+        self.assertEqual(list(profile.creator_libraries.all()), [self.sales])
+        entry = LogEntry.objects.get(change_message__contains="library_creator.granted")
+        self.assertIn("creator before the upgrade", entry.change_message)
+        # It happens once: a group joined later gives access, but no creator rights.
+        later = token(oid, [SALES, ENGINEERING])
+        self.assertEqual(
+            self.client.get(f"/libraries/{ENGINEERING}/new/", **later).status_code, 404,
+        )
+        self.assertEqual(list(profile.creator_libraries.all()), [self.sales])
+
+    def test_an_upgraded_creator_keeps_exactly_what_the_upgrade_gave_them(self):
+        Profile.objects.filter(pk=self.profile.pk).update(role="creator")
+        both = token(groups=[SALES, ENGINEERING])
+        self.assertEqual(self.client.get("/libraries/", **both).status_code, 200)
+        self.assertEqual(list(self.profile.creator_libraries.all()), [self.sales])
+        self.assertFalse(LogEntry.objects.filter(
+            change_message__contains="library_creator.granted",
+        ).exists())
+        # The old value is left alone, so a rollback finds this person a creator as before.
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.role, "creator")
+
+    def test_an_administrators_choice_outranks_the_old_global_role(self):
+        Profile.objects.filter(pk=self.profile.pk).update(role="creator")
+        self.profile.creator_libraries.clear()
+        response = self.client.post(
+            f"/admin/app_portal/profile/{self.profile.pk}/change/",
+            {"is_active": "on", "_save": "Save"}, **administrator(),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.get("/libraries/", **self.headers).status_code, 200)
+        self.profile.refresh_from_db()
+        self.assertEqual((self.profile.role, self.profile.creator_libraries.count()), ("viewer", 0))
+        # The same from a library's page: removing the person there is also a decision.
+        Profile.objects.filter(pk=self.profile.pk).update(role="creator")
+        self.profile.creator_libraries.add(self.sales)
+        response = self.client.post(
+            f"/admin/app_portal/entragroup/{SALES}/change/",
+            {"name": "Sales", "status": "enabled", "_save": "Save"}, **administrator(),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.get("/libraries/", **self.headers).status_code, 200)
+        self.assertFalse(self.profile.creator_libraries.exists())
+
+    def test_new_users_always_start_as_viewers(self):
+        oid = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+        headers = token(oid, [SALES])
+        self.assertEqual(self.client.get("/libraries/", **headers).status_code, 200)
+        self.assertFalse(Profile.objects.get(user__username=oid).creator_libraries.exists())
+        self.assertEqual(self.client.get(f"/libraries/{SALES}/new/", **headers).status_code, 404)
+
+    def test_new_users_receive_no_libraries_without_membership(self):
+        headers = token("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", [])
+        response = self.client.get("/libraries/", **headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, f"/libraries/{SALES}/")
+        self.assertNotContains(response, f"/libraries/{ENGINEERING}/")
+        for path in (f"/libraries/{SALES}/new/", f"/libraries/{ENGINEERING}/", "/admin/"):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path, **headers).status_code, 404)
 
     def test_group_sync_removes_stale_membership_and_superuser(self):
         self.client.get(
@@ -99,7 +193,7 @@ class IdentityTests(PortalCase):
         self.assertTrue(any(
             event["action"] == "http.request" and event["actor_id"] == OID for event in events
         ))
-        self.assertEqual(Profile.objects.get(user__username=OID).role, "creator")
+        self.assertEqual(list(self.profile.creator_libraries.all()), [self.sales])
 
 
 class SignOutTests(LibraryCase):
@@ -199,7 +293,7 @@ class LocalSignInTests(PortalCase):
 
     def test_fake_user_is_a_limited_viewer_even_with_a_forged_token(self):
         user = self.fake_user().user
-        self.assertEqual(user.profile.role, "viewer")
+        self.assertFalse(user.profile.creator_libraries.exists())
         self.assertFalse(user.has_usable_password() or user.is_staff or user.is_superuser)
         self.assertEqual(self.local.get(f"/libraries/{SALES}/").status_code, 200)
         response = self.local.get(

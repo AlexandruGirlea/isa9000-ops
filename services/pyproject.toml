@@ -9,7 +9,7 @@ description = "Hosted isa9000 worker and Django portal."
 license = "Apache-2.0"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "isa9000==0.3.4",
+    "isa9000==0.3.5",
     "Django>=5.2,<5.3",
     "gunicorn",
     "psycopg2-binary",

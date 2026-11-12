@@ -68,6 +68,7 @@ def verified_identity(token):
 
 
 GRAPH_ME = "https://graph.microsoft.com/v1.0/me"
+GRAPH_REFRESH = 5 * 60
 
 
 def graph_groups(request, person):
@@ -75,21 +76,24 @@ def graph_groups(request, person):
     # cover, so the owner is compared before the list can grant anything.
     now = time.time()
     cached = request.session.get("graph_groups")
-    if cached and cached["oid"] == person["oid"] and now < cached["until"]:
+    if cached and cached["oid"] != person["oid"]:
+        cached = None
+    if cached and now < cached["until"]:
         return cached["groups"]
+    groups, until = cached["groups"] if cached else None, now + 60
     token = request.headers.get("X-MS-TOKEN-AAD-ACCESS-TOKEN")
     if not token:
-        return None
+        return groups
     call = {
         "headers": {"Authorization": f"Bearer {token}"},
         "timeout": (2, 3),
         "allow_redirects": False,
     }
-    groups, until = None, now + 60
     try:
         owner = requests.get(f"{GRAPH_ME}?$select=id", **call)
         owner.raise_for_status()
         if str(uuid.UUID(owner.json()["id"])) != person["oid"]:
+            groups = None
             raise ValueError("Access token belongs to someone else.")
         answer = requests.post(
             f"{GRAPH_ME}/getMemberObjects", json={"securityEnabledOnly": True}, **call
@@ -98,7 +102,7 @@ def graph_groups(request, person):
         listed, state = directory_groups({"groups": answer.json()["value"]})
         if state != "complete":
             raise ValueError("Unreadable group list.")
-        groups, until = listed, person["expires"]
+        groups, until = listed, min(now + GRAPH_REFRESH, person["expires"])
     except (requests.RequestException, ValueError, KeyError, TypeError, AttributeError) as error:
         response = getattr(error, "response", None)
         reason = type(error).__name__ if response is None else f"http_{response.status_code}"

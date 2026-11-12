@@ -51,6 +51,8 @@ def dispatch(run):
     }
     if run.task in {"record", "render"}:
         body["manifest"] = run.course.manifest
+    if run.episodes:
+        body["episodes"] = run.episodes
     try:
         body = payloads.encrypt(body, f"task:{run.id}")
         connection = os.environ.get("ISA9000_SERVICEBUS_CONNECTION_STRING")
@@ -113,7 +115,7 @@ def daily_limit_reached(user) -> bool:
 
 def new_run(
     course, user, task, request="", sources=None, follow_links=False, run_id=None,
-    generation_settings=None, text_only=False,
+    generation_settings=None, text_only=False, episodes=None,
 ):
     get_user_model().objects.select_for_update().get(pk=user.pk)
     Course.objects.select_for_update().get(pk=course.pk)
@@ -145,6 +147,7 @@ def new_run(
             course.generation_settings if generation_settings is None else generation_settings
         ),
         text_only=text_only if task == "create" else False,
+        episodes=sorted(set(episodes)) if task == "record" and episodes else None,
         steps=[
             {"key": key, "label": label, "status": "pending", "detail": ""} for key, label in steps
         ],

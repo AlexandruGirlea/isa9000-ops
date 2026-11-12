@@ -45,7 +45,7 @@ flowchart TB
 
 This shows the main generation path. Entra authenticates employees; Django
 checks access and owns libraries, podcast pages and run history. Workers report
-progress and results back to Django. Each job execution handles at most one task.
+progress and results back to Django. Each worker replica handles one task at a time.
 
 Service Bus carries tasks. Workers send progress and results directly to Django
 through HTTP callbacks, and Django saves them in Postgres. While a run is active,

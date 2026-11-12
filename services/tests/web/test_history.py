@@ -38,6 +38,15 @@ class HistoryUpdateTests(LibraryCase):
                 row = self.row()
                 self.assertEqual((row["label"], row["action"], row["url"]), (label, action, url))
 
+    def test_new_audio_that_was_not_recorded_leaves_the_podcast_ready(self):
+        Run.objects.filter(pk=self.run.pk).update(task="record", episodes=[1])
+        for run in ("failed", "stopped", "needs_review"):
+            with self.subTest(run=run):
+                self.set_state(run, "ready")
+                row = self.row()
+                self.assertEqual((row["label"], row["action"]), ("Ready", "View result"))
+                self.assertEqual((row["url"], row["canceled_by"]), (f"/runs/{self.run.id}/", ""))
+
     def test_updates_cover_only_your_own_accessible_podcasts(self):
         self.assertIn(str(self.course.id), self.rows())
         self.assertEqual(self.rows(token(groups=[])), {})

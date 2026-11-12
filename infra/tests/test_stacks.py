@@ -50,7 +50,18 @@ def test_stack_contract(environment):
     assert bus["disableLocalAuth"] is True
     assert bus["minimumTlsVersion"] == "1.2"
     postgres = resources["postgres"]["inputs"]
-    assert postgres["sku"]["tier"] == ("GeneralPurpose" if production else "Burstable")
+    assert postgres["sku"] == {
+        "tier": "GeneralPurpose" if production else "Burstable",
+        "name": "Standard_D2ds_v5" if production else "Standard_B1ms",
+    }
+    assert postgres["storage"] == {
+        "storageSizeGB": 128 if production else 32,
+        "autoGrow": "Enabled" if production else "Disabled",
+    }
+    assert postgres["backup"]["backupRetentionDays"] == (35 if production else 7)
+    assert bus["sku"] == {"name": "Standard" if production else "Basic", "tier": (
+        "Standard" if production else "Basic"
+    )}
     assert postgres["backup"]["geoRedundantBackup"] == ("Enabled" if production else "Disabled")
     assert resources["require_secure_transport"]["inputs"]["value"] == "ON"
     environment_inputs = resources["environment"]["inputs"]
@@ -73,7 +84,13 @@ def test_stack_contract(environment):
     worker = resources["worker"]["inputs"]
     watchdog = resources["watchdog"]["inputs"]
     migrate = resources["migrate"]["inputs"]
-    assert web["template"]["scale"]["minReplicas"] == (1 if production else 0)
+    assert web["template"]["scale"]["minReplicas"] == 1
+    assert web["template"]["containers"][0]["resources"] == (
+        {"cpu": 2, "memory": "4Gi"} if production else {"cpu": 0.5, "memory": "1Gi"}
+    )
+    assert worker["template"]["containers"][0]["resources"] == (
+        {"cpu": 2, "memory": "4Gi"} if production else {"cpu": 1, "memory": "2Gi"}
+    )
     expected_secrets = {
         "web": {"database-runtime", "django-key", "callback", "admin-group", "auth-client-secret",
                 "payload-key"},
@@ -129,9 +146,33 @@ def test_stack_contract(environment):
         for name in web_vars | worker_vars
     )
     assert web["configuration"]["ingress"]["allowInsecure"] is False
-    assert worker["configuration"]["replicaTimeout"] == 7200
-    assert worker["configuration"]["replicaRetryLimit"] == 0
-    assert worker["configuration"]["eventTriggerConfig"]["parallelism"] == 1
+    assert resources["worker"]["type"] == "azure-native:app:ContainerApp"
+    assert "ingress" not in worker["configuration"]
+    assert worker["configuration"]["activeRevisionsMode"] == "Single"
+    assert worker["template"]["scale"] == {
+        "minReplicas": 1,
+        "maxReplicas": 5,
+        "pollingInterval": 10,
+        "rules": [{
+            "name": "tasks",
+            "custom": {
+                "type": "azure-servicebus",
+                "identity": "/mock/worker-identity",
+                "metadata": {
+                    "namespace": bus["namespaceName"],
+                    "queueName": "tasks",
+                    "messageCount": "1",
+                },
+            },
+        }],
+    }
+    assert worker["template"]["terminationGracePeriodSeconds"] == 600
+    assert worker["template"]["containers"][0]["args"] == [
+        "python", "-c", RUNNER.parents[1].joinpath("worker_service.py").read_text(),
+    ]
+    assert "ContainerCrashing" in resources["worker-executions"]["inputs"][
+        "criteria"
+    ]["allOf"][0]["query"]
     assert resources["easyauth"]["inputs"]["globalValidation"]["excludedPaths"] == [
         "/",
         "/static/*",
@@ -143,6 +184,20 @@ def test_stack_contract(environment):
         "budget",
     ):
         assert name in resources
+
+
+@pytest.mark.parametrize("environment", ["dev", "test", "prod"])
+def test_worker_keeps_existing_concurrency_and_polling_settings(environment):
+    resources = run_stack(environment, {
+        "isa9000:workerMaxExecutions": 2,
+        "isa9000:workerPollingSeconds": 15,
+        "isa9000:webMinReplicas": 2,
+    })["resources"]
+    scale = resources["worker"]["inputs"]["template"]["scale"]
+    assert scale["minReplicas"] == 1
+    assert scale["maxReplicas"] == 2
+    assert scale["pollingInterval"] == 15
+    assert resources["web"]["inputs"]["template"]["scale"]["minReplicas"] == 2
 
 
 def test_created_registration_only_allows_the_sign_in_callback():
@@ -255,6 +310,11 @@ def test_immutable_image_and_every_employee_can_sign_in():
 @pytest.mark.parametrize(
     "overrides, message",
     [
+        ({"isa9000:webMinReplicas": 0}, "webMinReplicas must be at least 1"),
+        ({"isa9000:webMinReplicas": -1}, "webMinReplicas must be at least 1"),
+        ({"isa9000:webMinReplicas": 4}, "webMaxReplicas at least webMinReplicas"),
+        ({"isa9000:workerMaxExecutions": 0}, "workerMaxExecutions must be at least 1"),
+        ({"isa9000:workerMaxExecutions": -1}, "workerMaxExecutions must be at least 1"),
         ({"isa9000:ingress": "internal"}, "network and certificate contract"),
         ({"isa9000:ingress": "custom-domain"}, "staged DNS and domain-binding contract"),
         ({"isa9000:containerAppsSubnetCidr": "10.42.255.0/24"}, "postgresSubnetCidr"),

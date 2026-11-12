@@ -78,6 +78,7 @@ jobs:
           pulumi up --yes --non-interactive --exclude-dependents \
             --exclude 'urn:pulumi:**::azure-native:app:ContainerApp::web' \
             --exclude 'urn:pulumi:**::azure-native:app:Job::worker' \
+            --exclude 'urn:pulumi:**::azure-native:app:ContainerApp::worker' \
             --exclude 'urn:pulumi:**::azure-native:app:Job::watchdog' \
             --exclude 'urn:pulumi:**::azure-native:app:ContainerAppsAuthConfig::easyauth' \
             --exclude 'urn:pulumi:**::azure-native:monitor:ScheduledQueryRule::worker-executions' \
@@ -107,6 +108,21 @@ jobs:
         working-directory: infra
         run: |
           python ../.github/azure_token.py
+          group=$(pulumi stack output resourceGroup)
+          # The one-time Job-to-app migration needs a quiet intake/queue window. This
+          # check refuses to delete active jobs; it never cancels them or disables intake.
+          legacy_worker=$(az containerapp job list --resource-group "$group" \
+            --query "[?name=='isa9000-$STACK-worker'].name" --output tsv)
+          if [ -n "$legacy_worker" ]; then
+            active=$(az containerapp job execution list --resource-group "$group" \
+              --name "$legacy_worker" \
+              --query "length([?properties.status!='Succeeded' && properties.status!='Failed' && properties.status!='Stopped'])" \
+              --output tsv)
+            if [ "$active" != "0" ]; then
+              echo "Legacy worker executions are still active or unrecognized; let them finish before retrying deployment." >&2
+              exit 1
+            fi
+          fi
           pulumi up --yes --non-interactive
       - name: Smoke test
         working-directory: infra

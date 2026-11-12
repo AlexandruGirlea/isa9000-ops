@@ -39,6 +39,9 @@ def site():
 
 
 def environment(**options):
+    # Imported here: this module is loaded before the app's models are ready.
+    from app_portal.permissions import is_creator
+
     package = PackageLoader("isa9000", "presentation_website_templates")
     base = package.get_source(None, "base.html")[0]
     options["loader"] = ChoiceLoader(
@@ -53,6 +56,7 @@ def environment(**options):
     env = Environment(**options)
     env.filters["description_markdown"] = render_description
     env.globals["get_messages"] = get_messages
+    env.globals["is_creator"] = is_creator
     env.globals["description_css"] = Markup(DESCRIPTION_CSS)
     env.globals["generation_css"] = Markup(
         files("isa9000").joinpath("audio_generation_ui/static/theme.css").read_text()

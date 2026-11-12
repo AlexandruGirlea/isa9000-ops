@@ -15,7 +15,7 @@ Setting `isa9000:environment: prod` selects this cost-conscious baseline.
 | Service | Production default |
 | --- | --- |
 | Django | 2 vCPU / 4 GiB per replica; 1–5 replicas; HTTP autoscaling |
-| Workers | 2 vCPU / 4 GiB per execution; 0–5 concurrent executions, one replica each |
+| Workers | 2 vCPU / 4 GiB per replica; 1–5 replicas, one task each; queue autoscaling |
 | Container Apps environment | Consumption profile, zone redundancy, dedicated VNet/subnet |
 | PostgreSQL 16 | General Purpose `Standard_D2ds_v5` (2 vCPU / 8 GiB), no standby |
 | Database disk | 128 GiB, automatic growth |
@@ -61,8 +61,7 @@ Every environment creates an external Container Apps environment in its own VNet
 ### Dev/test profile
 
 - Small compute, Burstable PostgreSQL, LRS storage, Basic queue.
-- The web app scales to zero when idle; the first request waits for a cold start.
-- Set `isa9000:webMinReplicas: 1` to keep one warm copy.
+- The web app and the worker each keep at least one replica running; `isa9000:webMinReplicas` below 1 is rejected.
 - Existing stack overrides such as `webMinReplicas`, `webMaxReplicas`, `postgresSku` and `postgresTier` take precedence over defaults. Review them when adopting this profile.
 
 ## Key Vault is included

@@ -10,9 +10,11 @@ from django.contrib.admin.models import LogEntry
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
 from django.test import override_settings
+from isa9000.config import load_config
 from opentelemetry import trace
 
 from shared import payloads
+from shared.generation import generation_defaults
 
 from .helpers import SALES, PortalCase
 
@@ -198,6 +200,150 @@ class ActionTests(PortalCase):
         self.assertEqual(self.client.post(path, approve, **self.headers).status_code, 409)
         self.assertEqual(Run.objects.count(), 2)
 
+    def test_regenerating_one_episode_queues_a_recording_of_that_episode_only(self):
+        self.run.status = "ready"
+        self.run.save()
+        path = f"/courses/{self.course.id}/manage/"
+        before = (self.course.status, self.course.html, self.course.manifest)
+        with patch("app_portal.runs.dispatch") as send, self.captureOnCommitCallbacks(
+            execute=True,
+        ):
+            response = self.client.post(
+                path, {"action": "rerecord_episode", "episode": 2}, **self.headers,
+            )
+        run = Run.objects.get(status="queued")
+        self.assertEqual(response.url, f"/runs/{run.id}/")
+        self.assertEqual((run.task, run.episodes), ("record", [2]))
+        self.assertEqual([step["key"] for step in run.steps], ["record", "done"])
+        send.assert_called_once()
+        self.assertTrue(LogEntry.objects.filter(
+            user=self.user, change_message__contains="episode.rerecord_requested",
+        ).exists())
+        # Nothing about the published podcast changes until the new recording arrives.
+        self.course.refresh_from_db()
+        self.assertEqual((self.course.status, self.course.html, self.course.manifest), before)
+        page = self.client.get(path, **self.headers)
+        self.assertContains(page, "Recording new audio for episode 2")
+        self.assertNotContains(page, 'value="rerecord_episode"')
+        self.assertContains(self.client.get(f"/runs/{run.id}/", **self.headers), "Record episode 2")
+        listening = self.client.get(f"/courses/{self.course.id}/", **self.headers)
+        self.assertEqual(listening.content, self.course.html.encode())
+
+    def test_regenerating_is_refused_when_there_is_nothing_to_replace(self):
+        path = f"/courses/{self.course.id}/manage/"
+
+        def regenerate(episode):
+            return self.client.post(
+                path, {"action": "rerecord_episode", "episode": episode}, **self.headers,
+            ).status_code
+
+        # A run is still in progress.
+        self.assertEqual(regenerate(1), 409)
+        self.run.status = "ready"
+        self.run.save()
+        self.assertEqual(regenerate(9), 404)
+        self.assertEqual(regenerate(""), 404)
+        self.course.manifest["episodes"][0].update(audio=None, seconds=None)
+        self.course.save()
+        self.assertEqual(regenerate(1), 409)
+        # Awaiting approval: approving records what is missing.
+        self.in_review()
+        self.assertEqual(regenerate(2), 409)
+        self.assertEqual(Run.objects.count(), 1)
+
+    def test_a_failed_regeneration_leaves_the_podcast_as_it_was(self):
+        self.run.status = "ready"
+        self.run.save()
+        run = Run.objects.create(
+            course=self.course, requested_by=self.user, task="record", episodes=[1],
+        )
+        self.callback("accept", run=run)
+        page = self.client.get(f"/runs/{run.id}/", **self.headers)
+        self.assertContains(page, "Recording new audio")
+        self.assertContains(page, "keeps playing its current audio")
+        # The worker recorded a new take under a new name, then failed before it could publish.
+        staged = {**self.manifest, "episodes": [
+            {**self.manifest["episodes"][0], "audio": "01 - take-new.mp3", "seconds": 75},
+            self.manifest["episodes"][1],
+        ]}
+        self.callback("result", {
+            "state": "failed", "manifest": staged, "error": "The page could not be built",
+            "error_source": "worker",
+        }, run=run)
+        self.course.refresh_from_db()
+        self.assertEqual((self.course.status, self.course.html), ("ready", "<!doctype html>Course"))
+        self.assertEqual(self.course.manifest, self.manifest)
+        page = self.client.get(f"/runs/{run.id}/", **self.headers)
+        self.assertContains(page, "The new audio was not recorded")
+        self.assertContains(page, "still plays its previous audio")
+        self.assertNotContains(page, 'value="retry"')
+        # The button is back, so the creator can start again.
+        manage = self.client.get(f"/courses/{self.course.id}/manage/", **self.headers)
+        self.assertContains(manage, 'value="rerecord_episode"', count=2)
+        self.assertContains(manage, '<div class="workspace-column">', count=2)
+
+    def test_a_finished_regeneration_replaces_the_page_and_duration(self):
+        self.run.status = "ready"
+        self.run.save()
+        run = Run.objects.create(
+            course=self.course, requested_by=self.user, task="record", episodes=[1],
+        )
+        self.callback("accept", run=run)
+        manifest = {**self.manifest, "episodes": [
+            {**self.manifest["episodes"][0], "seconds": 75}, self.manifest["episodes"][1],
+        ]}
+        self.callback(
+            "result", {"state": "ready", "manifest": manifest, "html": "New page"}, run=run,
+        )
+        self.course.refresh_from_db()
+        self.assertEqual((self.course.status, self.course.html), ("ready", "New page"))
+        self.assertEqual(self.course.manifest["episodes"][0]["seconds"], 75)
+
+    def test_pronunciations_are_edited_on_manage_and_used_by_the_next_recording(self):
+        self.run.status = "ready"
+        self.run.save()
+        self.course.generation_settings = generation_defaults(load_config())
+        self.course.save()
+        path = f"/courses/{self.course.id}/manage/"
+        refused = self.client.post(
+            path, {"action": "pronunciations", "pronunciations": "GLE G L E"}, **self.headers,
+        )
+        self.assertContains(refused, "Use one pronunciation per line")
+        response = self.client.post(
+            path, {"action": "pronunciations", "pronunciations": "GLE=G L E\nnginx = engine x",
+                   "name": "Unrequested narrator", "quality": "thorough"},
+            **self.headers,
+        )
+        self.assertEqual(response.url, path)
+        spoken = {"GLE": "G L E", "nginx": "engine x"}
+        self.course.refresh_from_db()
+        self.assertEqual(
+            self.course.generation_settings,
+            {**generation_defaults(load_config()), "pronunciations": spoken},
+        )
+        self.assertTrue(LogEntry.objects.filter(
+            user=self.user, change_message__contains="pronunciations",
+        ).exists())
+        self.assertContains(self.client.get(path, **self.headers), "GLE = G L E")
+        with patch("app_portal.runs.dispatch"):
+            self.client.post(path, {"action": "rerecord_episode", "episode": 1}, **self.headers)
+        run = Run.objects.get(status="queued")
+        self.assertEqual(run.generation_settings["pronunciations"], spoken)
+
+    def test_manage_lists_the_links_and_file_names_the_podcast_was_made_from(self):
+        path = f"/courses/{self.course.id}/manage/"
+        self.run.sources = ["https://example.invalid/a?b=1&c=2", "uploads/x/1-price-list.pdf"]
+        self.run.follow_links = True
+        self.run.save()
+        page = self.client.get(path, **self.headers)
+        self.assertContains(page, 'href="https://example.invalid/a?b=1&amp;c=2"')
+        self.assertContains(page, "price-list.pdf")
+        self.assertNotContains(page, "uploads/x")
+        self.assertContains(page, "were also read, up to 25.")
+        self.run.follow_links = False
+        self.run.save()
+        self.assertContains(self.client.get(path, **self.headers), "were not read.")
+
     def test_delete_episode_updates_blob_manifest_and_queues_render(self):
         self.run.status = "ready"
         self.run.save()
@@ -280,11 +426,23 @@ class ActionTests(PortalCase):
         self.assertTrue(body["follow_links"])
         self.assertEqual(body["title"], self.course.title)
         self.assertEqual(body["manifest"], self.course.manifest)
+        # Without chosen episodes the task says nothing, and isa9000 records what is missing.
+        self.assertNotIn("episodes", body)
         self.assertEqual(body["description"], self.course.description)
         self.assertEqual(body["links"]["home"], f"/libraries/{SALES}/")
         self.assertEqual(body["callback"], f"http://testserver/internal/runs/{self.run.id}")
         self.assertEqual(message.message_id, str(self.run.id))
         self.assertEqual(message.application_properties, {"traceparent": "parent"})
+        self.run.episodes = [2]
+        self.run.save()
+        with (
+            patch.dict("os.environ", {"ISA9000_SERVICEBUS_CONNECTION_STRING": "local-test"}),
+            patch("app_portal.runs.ServiceBusClient", factory),
+        ):
+            dispatch(self.run)
+        message = sender.__enter__.return_value.send_messages.call_args.args[0]
+        body = payloads.decrypt(json.loads(b"".join(message.body)), f"task:{self.run.id}")
+        self.assertEqual(body["episodes"], [2])
 
     def test_dispatch_failure_is_a_failed_run_without_sensitive_logs(self):
         with (

@@ -14,13 +14,13 @@ config:
   isa9000:alertEmail: audio-operations@example.com
   isa9000:authApp: create
   isa9000:groupClaims: SecurityGroup
-  # Asks Microsoft Graph for groups when a token has too many to list. Grant admin consent
+  # Asks Microsoft Graph for everyone's groups every five minutes. Grant admin consent
   # first, or Microsoft can block every sign-in; see group overage in
   # docs/operator-guide/sign-in-and-access.md.
   # isa9000:graphGroups: true
   isa9000:workerMaxExecutions: 5
   # For production set environment: prod. Defaults then become:
-  # web 2 vCPU / 4 GiB, 1-5 replicas; workers 2 vCPU / 4 GiB, 0-5 executions;
+  # web 2 vCPU / 4 GiB, 1-5 replicas; workers 2 vCPU / 4 GiB, 1-5 replicas;
   # PostgreSQL GeneralPurpose Standard_D2ds_v5, no standby, 128 GiB + autogrow,
   # 35-day geo backups; GZRS blobs with versioning/30-day recovery; Standard queue.
   # Prod creates a zone-redundant Container Apps environment and dedicated VNet.

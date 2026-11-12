@@ -29,13 +29,13 @@ flowchart LR
 | Role | How assigned | Can do |
 |---|---|---|
 | Viewer | Default for new users | See ready podcasts through their owning library or an administrator's sharing grant |
-| Creator | Made a creator by an administrator in the admin | Viewer access, plus drafts and management actions in the owning library |
+| Creator | Assigned per library by an administrator in the admin | Viewer access, plus drafts and management actions in the libraries they create in |
 | Administrator | Member of the configured Entra admin group, or the local **Application administrator** flag | Manage **Libraries** and **Users**, make people creators |
 
-- Other users keep their assigned viewer or creator role. Roles persist across sign-ins.
+- Creator libraries persist across sign-ins. A creator also needs current membership of the library's Entra group.
 - Administrators are labelled **Administrator**.
 - Podcasts are unavailable while their owning library is not enabled.
-- Library membership and local grants: see [libraries and local access](#libraries-and-local-access).
+- Library membership and creators: see [libraries and creators](#libraries-and-creators).
 - The admin uses Django's standard layout. Run results and **Activity** are read-only.
 
 ## Account status
@@ -54,7 +54,7 @@ Only these are reachable without signing in:
 
 Worker callbacks require their separate bearer credential.
 
-## Libraries and local access
+## Libraries and creators
 
 When a member signs in, each group in their token appears under **Admin → Libraries / Entra groups**, named after its Entra group ID and set to **Hidden**.
 
@@ -70,7 +70,7 @@ When a member signs in, each group in their token appears under **Admin → Libr
 | Library status | In the portal |
 |---|---|
 | **Hidden** | Nobody can use it: pages, media and shares return 404 for everyone, including administrators. All data is kept; restoring is one status change. Runs already in progress still finish |
-| **Enabled** | Available to members, local grants and administrators |
+| **Enabled** | Available to members and administrators |
 
 - Administrators get every enabled library in the portal.
 - Admin list sidebars offer the first 50 enabled libraries. Each library's page links to its people and podcasts.
@@ -80,20 +80,17 @@ When a member signs in, each group in their token appears under **Admin → Libr
 
 Visibility in an enabled library:
 
-| Enabled library | Viewer | Creator with access | Administrator |
+| Enabled library | Viewer | Creator in that library | Administrator |
 |---|---|---|---|
 | Has podcasts visible to that person | Published podcasts | Drafts and published podcasts | Drafts and published podcasts |
 | Empty | Hidden | Visible | Visible |
 
-**Admin → Local library access** gives one person access to one enabled library without changing Entra.
+Library access comes from Entra groups alone. To give someone a library, add them to its Entra group.
 
-- Each record keeps who granted it, the time, an optional reason, an optional expiry and any revocation.
-- Without an expiry, access lasts until revoked.
-- Records can be revoked but not edited or deleted.
-- A person's access is their current Entra membership plus active local grants. **Admin → Users → the person** shows each source.
-- Revoking a local grant cannot remove access that Entra still provides.
-- A local grant never changes the viewer/creator role.
-- A local grant never makes anyone an administrator, even when the library's group is the administrator group.
+- **Admin → Users → the person → Creator in libraries** makes that person a creator in the chosen libraries. **Admin → Libraries / Entra groups → the library → Creators** does the same from the library's side.
+- People who were creators before creators were assigned per library become creators in the enabled libraries they had access to.
+- Creator changes are audited.
+- Local library access records from earlier releases stay in the database but no longer give access.
 
 ## Group overage
 
@@ -102,11 +99,11 @@ Entra omits the group list from a token when a person is in too many groups, and
 - Microsoft documents 200 groups for these tokens, and about 5 for ID tokens from the implicit part of a hybrid flow.
 - The person can still sign in. The application never follows URLs from the token.
 
-With `isa9000:graphGroups: true`, the application asks Microsoft Graph for that person's security groups.
+With `isa9000:graphGroups: true`, the application asks Microsoft Graph for every signed-in person's security groups, not only after an overage.
 
 - It uses their own sign-in and the delegated `User.Read` permission.
 - It checks that the access token belongs to the signed-in person.
-- It keeps the list until their ID token expires: two calls per sign-in.
+- It reads the list again every five minutes, two calls each time, so a membership change in Entra applies within five minutes.
 - The list works like a token's list, including for library access and the administrator group.
 - It is off by default.
 
@@ -123,9 +120,9 @@ To undo it, set the value to `false` and deploy.
 If the setting is off or a lookup fails:
 
 - The person sees a notice with a reference ID.
-- A failed lookup is tried again after a minute.
+- A failed lookup is tried again after a minute. Until then the last list read in that session stays in use.
 - Their last known memberships are kept for diagnosis only and grant nothing.
-- To fix: find them under **Admin → Users** with the **Directory membership** filter and give them local library access.
+- To fix: turn on `isa9000:graphGroups`, or use `groupClaims: ApplicationGroup` so tokens list fewer groups. **Admin → Users** finds affected people with the **Directory membership** filter.
 - A token with a missing or unreadable group list gets the same notice and makes no Graph call.
 - An explicit empty list is a complete answer: that person has no Entra libraries.
 
