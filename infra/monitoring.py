@@ -76,7 +76,8 @@ queries = {
             lambda name: (
                 "ContainerAppSystemLogs_CL "
                 f"| where ContainerAppName_s == '{name}' "
-                "and Reason_s in ('JobExecutionFailed', 'DeadlineExceeded', 'BackoffLimitExceeded')"
+                "and Reason_s in ('ContainerCrashing', 'ContainerCreateFailure', "
+                "'ErrImagePull', 'ImagePullBackOff')"
             )
         ),
         "PT5M",

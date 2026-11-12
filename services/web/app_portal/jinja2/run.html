@@ -6,6 +6,7 @@
 <div class="generation-workspace">
 {% if active_run and active_run.id != run.id %}<section class="card run-callout"><div><h2>A newer run is in progress</h2><p class="hint">This page shows an earlier run. Follow the current run for the latest updates.</p></div><a class="button-link" href="/runs/{{ active_run.id }}/">Follow current run</a></section>
 {% elif run.status == 'needs_review' and course.status == 'needs_review' and not active_run %}{% include "review_actions.html" %}
+{% elif run.episodes and course.status == 'ready' and run.status != 'ready' %}<section class="card run-callout"><div><h2>{{ 'Recording new audio' if active else 'The new audio was not recorded' }}</h2><p class="hint">{{ 'This podcast keeps playing its current audio until the new recording is ready.' if active else 'This podcast still plays its previous audio. You can start again from the Manage page.' }}</p></div><a class="button-link" href="/courses/{{ course.id }}/manage/#episodes">Manage podcast</a></section>
 {% elif course.status == 'ready' and run.status != 'ready' %}<section class="card run-callout"><div><h2>This podcast is ready</h2><p class="hint">You are viewing an earlier run.</p></div><a class="button-link" href="/courses/{{ course.id }}/">Listen to podcast</a></section>{% endif %}
 <div class="workspace-grid">
   <section class="card">
@@ -26,7 +27,7 @@
   <div class="workspace-column">
     <section class="card"><h2>Prompt</h2>
       {% if run.request %}<p>{{ run.request }}</p>{% endif %}
-      <p class="hint">{{ run.get_task_display() }} · {{ run.course.group }}<br>{{ run.created.strftime('%d %B %Y, %H:%M') }} UTC</p>
+      <p class="hint">{{ run.get_task_display() }}{% if run.episodes %} episode {{ run.episodes|join(', ') }}{% endif %} · {{ run.course.group }}<br>{{ run.created.strftime('%d %B %Y, %H:%M') }} UTC</p>
       {% if run.generation_settings %}<dl class="settings-summary">
         <dt>Narrator</dt><dd>{{ run.generation_settings.name }}</dd>
         <dt>Voice</dt><dd>{{ run.generation_settings.voice }}</dd>

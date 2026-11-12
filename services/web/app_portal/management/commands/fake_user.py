@@ -46,7 +46,7 @@ class Command(BaseCommand):
                 if group is None or str(group.pk) == settings.ADMIN_GROUP_ID:
                     raise CommandError("Use --group with an enabled library, not the admin group.")
                 user = get_user_model().objects.create_user(username=str(uuid.uuid4()))
-                profile = Profile.objects.create(user=user, role="viewer")
+                profile = Profile.objects.create(user=user)
                 profile.groups.add(group)
                 entry = LocalTestUser.objects.create(user=user)
                 user.first_name = f"Fake user {entry.number}"
@@ -69,7 +69,8 @@ class Command(BaseCommand):
                 user, "auth.local_test_session_issued", entry, actor_id="local_cli",
                 changed_fields=["session"], state="refreshed" if number is not None else "created",
             )
-        self.stdout.write(f"Fake user #{entry.number} · {user.profile.get_role_display()}")
+        creating = user.profile.creator_libraries.filter(status="enabled").exists()
+        self.stdout.write(f"Fake user #{entry.number} · {'Creator' if creating else 'Viewer'}")
         for group in groups:
             self.stdout.write(f"Library: {group} ({group.pk})")
         self.stdout.write(f"Cookie name: {settings.SESSION_COOKIE_NAME}")

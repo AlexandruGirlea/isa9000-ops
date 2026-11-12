@@ -14,17 +14,16 @@ browser. Employees do not need GitHub, Docker, Python or Azure access.
 2. Open **Admin → Libraries / Entra groups**. Each group appears, named after its Entra ID, once a member
    signs in. Open your team's groups, give them readable names and set them to **Enabled**.
    Other groups stay hidden from everyone.
-3. Ask prospective creators to sign in once, then set their role under
-   **Admin → Users**.
+3. Ask prospective creators to sign in once, then choose the libraries they create in
+   under **Admin → Users → the person → Creator in libraries**.
 4. Leave other employees as viewers. Their Entra group memberships determine
    which libraries they can access.
 
-Each enabled library belongs to one Entra group. Creators and administrators see it
-straight away; viewers see it after a podcast is published.
+Each enabled library belongs to one Entra group. Its creators and administrators see it
+straight away; other members see it after a podcast is published.
 
 Someone in too many Entra groups can see a notice with a reference ID instead of their
-libraries. Find them under **Admin → Users** and add **Local library access**; see
-[group overage](operator-guide/sign-in-and-access.md#group-overage).
+libraries; see [group overage](operator-guide/sign-in-and-access.md#group-overage).
 
 New accounts are active automatically. To stop someone using the application,
 open **Admin → Users → the person**, clear **Active** and save. This blocks
@@ -95,6 +94,11 @@ Creators in the owning library can update a podcast's title, description and
 cover. Editing a published transcript removes it from the listener library
 until the changes are approved and recorded again. Only changed episodes need
 new audio.
+
+On **Manage**, **Regenerate audio** records one published episode again. The current
+audio keeps playing until the new recording is ready; it uses model credits and counts
+as one of your runs that day. **Pronunciations** under **Voice settings** can be changed
+there and apply the next time audio is recorded. The page also lists the podcast's sources.
 
 Administrators can share a published podcast through **Admin → Podcasts →
 Additional libraries**. Sharing grants listening access; management remains

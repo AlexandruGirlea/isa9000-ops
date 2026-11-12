@@ -473,7 +473,7 @@ wheels = [
 
 [[package]]
 name = "isa9000"
-version = "0.3.4"
+version = "0.3.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "azure-identity" },
@@ -487,9 +487,9 @@ dependencies = [
     { name = "requests" },
     { name = "tldextract" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f9/07/0367a6ffa344932d8a6e522df0670e4cb9a3f021290f6c6fe9cd2eca9f58/isa9000-0.3.4.tar.gz", hash = "sha256:c65da80071d5126d65de56070c28daba57e33eb354ebc53af8713443a066fcf4", size = 1229266, upload-time = "2026-11-11T13:43:00.988Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/15/19/97bd952388d25b5c671f7c60ba04345426c374e021198d565f84cd710cfd/isa9000-0.3.5.tar.gz", hash = "sha256:e03321b541e56324665361a201c4eebe2d4c14f8b0ad6139ae6f3752059c7e72", size = 1229309, upload-time = "2026-11-12T18:27:55.925Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/5a/42746ac38ac36fcf8829cf668bab4198c3a1a4e98de669c6a2a0b61af398/isa9000-0.3.4-py3-none-any.whl", hash = "sha256:7885c3b3ffad2a9e764b2f679fc2e1d2f3d241958e88c73e4054f704ac5bedaa", size = 1238156, upload-time = "2026-11-11T13:42:58.702Z" },
+    { url = "https://files.pythonhosted.org/packages/82/7a/cdee819bfa51912a3ba24c85f9b5fd6e4b25bf20b7733bd862c9daa2020a/isa9000-0.3.5-py3-none-any.whl", hash = "sha256:bf3ca3ec8b5d73a2460505de736bc31742f6d7b61f81fc07b4c332f133c9a768", size = 1238230, upload-time = "2026-11-12T18:27:54.185Z" },
 ]
 
 [[package]]
@@ -1258,7 +1258,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=50,<51" },
     { name = "django", specifier = ">=5.2,<5.3" },
     { name = "gunicorn" },
-    { name = "isa9000", specifier = "==0.3.4" },
+    { name = "isa9000", specifier = "==0.3.5" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "markdown-it-py", extras = ["linkify"], specifier = ">=4.2,<5" },
     { name = "mdit-py-plugins", specifier = ">=0.5,<1" },

@@ -4,18 +4,15 @@ import uuid
 
 from core.audit import record
 from django import forms
-from django.contrib import admin, messages
+from django.contrib import admin
 from django.contrib.admin.models import ADDITION
-from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
-from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef
-from django.shortcuts import redirect
+from django.contrib.admin.widgets import FilteredSelectMultiple, RelatedFieldWidgetWrapper
+from django.db.models import OuterRef, Q
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.html import format_html
 
-from app_portal.models import Course, EntraGroup, LibraryGrant, Profile
-from app_portal.permissions import count_of
+from app_portal.models import Course, EntraGroup, Profile
+from app_portal.permissions import count_of, people_with_access
 
 
 def without_popup_links(form):
@@ -26,6 +23,14 @@ def without_popup_links(form):
     return form
 
 
+def record_creator(actor, profile, library_id, granted):
+    record(
+        actor, f"library_creator.{'granted' if granted else 'revoked'}", profile,
+        changed_fields=["creator_libraries"], group_id=str(library_id),
+        target_id=profile.user.username,
+    )
+
+
 class AuditedAdmin(admin.ModelAdmin):
     def log_addition(self, request, obj, message):
         record(request.user, "admin.add", obj, flag=ADDITION)
@@ -33,11 +38,10 @@ class AuditedAdmin(admin.ModelAdmin):
     def log_change(self, request, obj, message):
         fields = (
             [field for entry in message for field in entry.get("changed", {}).get("fields", [])]
-            if isinstance(message, list) else ["role"] if isinstance(obj, Profile) else []
+            if isinstance(message, list) else []
         )
         record(
             request.user, "admin.change", obj, changed_fields=fields,
-            state=obj.role if isinstance(obj, Profile) else "",
             target_id=obj.user.username if isinstance(obj, Profile) else str(obj.pk),
         )
 
@@ -61,35 +65,58 @@ class LibraryFilter(admin.SimpleListFilter):
             return queryset
 
 
+class LibraryForm(forms.ModelForm):
+    creators = forms.ModelMultipleChoiceField(
+        queryset=Profile.objects.none(), required=False,
+        widget=RelatedFieldWidgetWrapper(
+            FilteredSelectMultiple("users", is_stacked=False),
+            Profile.creator_libraries.through._meta.get_field("profile").remote_field,
+            admin.site, can_add_related=False,
+        ),
+        help_text="Move a person to the right to make them a creator in this library. The left "
+        "box lists the members of this Entra group; type a name or an email address in the "
+        "filter to find one.",
+    )
+
+    class Meta:
+        model = EntraGroup
+        fields = ("object_id", "name", "status")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.instance._state.adding:
+            chosen = Profile.creator_libraries.through.objects.filter(entragroup=self.instance)
+            self.fields["creators"].queryset = Profile.objects.select_related("user").filter(
+                Q(pk__in=people_with_access(self.instance).values("pk"))
+                | Q(pk__in=chosen.values("profile"))
+            ).order_by("user__first_name", "pk")
+            self.initial["creators"] = list(self.instance.creators.values_list("pk", flat=True))
+
+
 @admin.register(EntraGroup)
 class EntraGroupAdmin(AuditedAdmin):
+    form = LibraryForm
     list_display = (
-        "__str__", "status", "owned_total", "shared_total", "people_total", "object_id",
+        "__str__", "status", "owned_total", "shared_total", "people_total", "creators_total",
+        "object_id",
     )
     ordering = ("status", "name")
     list_filter = ("status",)
     list_per_page = 50
     show_full_result_count = False
     search_fields = ("name", "object_id")
-    detail_links = ("users_link", "grants_link", "owned_link", "shared_link")
+    detail_links = ("users_link", "creators_link", "owned_link", "shared_link")
 
     def get_queryset(self, request):
         members = Profile.groups.through.objects.filter(profile__membership="complete")
+        creators = Profile.creator_libraries.through.objects.filter(entragroup=OuterRef("pk"))
         return super().get_queryset(request).annotate(
+            creators_total=count_of(creators, "entragroup"),
             owned_total=count_of(Course.objects.filter(group=OuterRef("pk")), "group"),
             shared_total=count_of(
                 Course.objects.filter(shared_groups=OuterRef("pk")), "shared_groups",
             ),
-            # Members plus local grants held by non-members, so nobody is counted twice.
-            people_total=count_of(members.filter(entragroup=OuterRef("pk")), "entragroup")
-            + count_of(
-                LibraryGrant.objects.active().filter(library=OuterRef("pk")).exclude(
-                    Exists(members.filter(
-                        entragroup=OuterRef("library"), profile=OuterRef("profile"),
-                    )),
-                ),
-                "library",
-            ),
+            people_total=count_of(members.filter(entragroup=OuterRef("pk")), "entragroup"),
         )
 
     def get_form(self, request, obj=None, **kwargs):
@@ -108,10 +135,22 @@ class EntraGroupAdmin(AuditedAdmin):
 
     def get_fields(self, request, obj=None):
         fields = ("object_id", "name", "status")
-        return (*fields, *self.detail_links) if obj else fields
+        return (*fields, "creators", *self.detail_links) if obj else fields
 
     def get_readonly_fields(self, request, obj=None):
         return ("object_id", *self.detail_links) if obj else ()
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        library = form.instance
+        before = set(library.creators.values_list("pk", flat=True))
+        after = {profile.pk for profile in form.cleaned_data["creators"]}
+        library.creators.set(after)
+        changed = Profile.objects.select_related("user").filter(pk__in=before ^ after)
+        for profile in changed.order_by("pk"):
+            record_creator(request.user, profile, library.pk, granted=profile.pk in after)
+        # An administrator has now decided for these people: see PersonAdmin.save_related.
+        changed.filter(role="creator").update(role="viewer")
 
     @admin.display(description="Owned", ordering="owned_total")
     def owned_total(self, obj):
@@ -125,16 +164,21 @@ class EntraGroupAdmin(AuditedAdmin):
     def people_total(self, obj):
         return obj.people_total
 
+    @admin.display(description="Creators", ordering="creators_total")
+    def creators_total(self, obj):
+        return obj.creators_total
+
     @admin.display(description="People with access")
     def users_link(self, obj):
         url = reverse("admin:app_portal_profile_changelist")
         label = "1 person" if obj.people_total == 1 else f"{obj.people_total} people"
         return format_html('<a href="{}?library={}">{}</a>', url, obj.pk, label)
 
-    @admin.display(description="Local access records")
-    def grants_link(self, obj):
-        url = reverse("admin:app_portal_librarygrant_changelist")
-        return format_html('<a href="{}?library__object_id__exact={}">View</a>', url, obj.pk)
+    @admin.display(description="Creators in the users list")
+    def creators_link(self, obj):
+        url = reverse("admin:app_portal_profile_changelist")
+        label = "1 creator" if obj.creators_total == 1 else f"{obj.creators_total} creators"
+        return format_html('<a href="{}?creator_library={}">{}</a>', url, obj.pk, label)
 
     @admin.display(description="Owned podcasts")
     def owned_link(self, obj):
@@ -154,125 +198,6 @@ class EntraGroupAdmin(AuditedAdmin):
 
     def has_change_permission(self, request, obj=None):
         return request.user.is_superuser
-
-    def has_view_permission(self, request, obj=None):
-        return request.user.is_superuser
-
-
-def close_grant(grant, user, state=""):
-    grant.revoked, grant.revoked_by = timezone.now(), user
-    grant.save(update_fields=["revoked", "revoked_by"])
-    record(
-        user, "library_access.revoked", grant, changed_fields=["revoked"], state=state,
-        group_id=str(grant.library_id), target_id=grant.profile.user.username,
-    )
-
-
-class LibraryGrantForm(forms.ModelForm):
-    class Meta:
-        model = LibraryGrant
-        fields = ("profile", "library", "reason", "expires")
-
-    def clean(self):
-        cleaned = super().clean()
-        profile, library = cleaned.get("profile"), cleaned.get("library")
-        expires = cleaned.get("expires")
-        if expires and expires <= timezone.now():
-            self.add_error("expires", "Choose a future time.")
-        if profile and library and LibraryGrant.objects.active().filter(
-            profile=profile, library=library,
-        ).exists():
-            self.add_error("library", "This person already has this access.")
-        return cleaned
-
-
-class GrantStateFilter(admin.SimpleListFilter):
-    title = "state"
-    parameter_name = "state"
-
-    def lookups(self, request, model_admin):
-        return (("active", "Active"), ("expired", "Expired"), ("revoked", "Revoked"))
-
-    def queryset(self, request, queryset):
-        if self.value() == "active":
-            return queryset.active()
-        if self.value() == "expired":
-            return queryset.filter(revoked__isnull=True, expires__lte=timezone.now())
-        return queryset.filter(revoked__isnull=False) if self.value() == "revoked" else queryset
-
-
-@admin.register(LibraryGrant)
-class LibraryGrantAdmin(AuditedAdmin):
-    form = LibraryGrantForm
-    autocomplete_fields = ("profile", "library")
-    list_display = ("profile", "library", "state", "expires", "granted_by", "created")
-    list_filter = (GrantStateFilter, "created")
-    list_select_related = ("profile__user", "library", "granted_by")
-    list_per_page = 50
-    show_full_result_count = False
-    search_fields = (
-        "profile__user__first_name", "profile__user__email", "profile__user__username",
-        "library__name",
-    )
-    actions = ("revoke",)
-
-    def get_fields(self, request, obj=None):
-        fields = ("profile", "library", "reason", "expires")
-        if obj:
-            fields += ("state", "granted_by", "created", "revoked", "revoked_by")
-        return fields
-
-    def get_form(self, request, obj=None, **kwargs):
-        return without_popup_links(super().get_form(request, obj, **kwargs))
-
-    @admin.display(description="State")
-    def state(self, obj):
-        if obj.revoked:
-            return "Revoked"
-        return "Expired" if obj.expires and obj.expires <= timezone.now() else "Active"
-
-    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
-        try:
-            return super().changeform_view(request, object_id, form_url, extra_context)
-        except IntegrityError:
-            # A simultaneous submission won; the database kept its single open grant.
-            self.message_user(request, "This person already has this access.", messages.WARNING)
-            return redirect("admin:app_portal_librarygrant_changelist")
-
-    @transaction.atomic
-    def save_model(self, request, obj, form, change):
-        # An expired grant still occupies the one open slot until it is closed.
-        for expired in LibraryGrant.objects.select_related("profile__user").filter(
-            profile=obj.profile, library=obj.library, revoked__isnull=True,
-            expires__lte=timezone.now(),
-        ):
-            close_grant(expired, request.user, state="expired")
-        obj.granted_by = request.user
-        super().save_model(request, obj, form, change)
-
-    def log_addition(self, request, obj, message):
-        record(
-            request.user, "library_access.granted", obj, flag=ADDITION,
-            group_id=str(obj.library_id), target_id=obj.profile.user.username,
-        )
-
-    @admin.action(description="Revoke selected access")
-    @transaction.atomic
-    def revoke(self, request, queryset):
-        grants = LibraryGrant.objects.select_related("profile__user").select_for_update(
-            of=("self",),
-        ).filter(pk__in=list(queryset.values_list("pk", flat=True)), revoked__isnull=True)
-        for grant in grants:
-            close_grant(grant, request.user)
-
-    def has_add_permission(self, request):
-        return request.user.is_superuser
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
 
     def has_view_permission(self, request, obj=None):
         return request.user.is_superuser

@@ -7,19 +7,23 @@ from core.branding import site
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.models import CHANGE, DELETION, LogEntry
+from django.contrib.admin.widgets import FilteredSelectMultiple
 from django.contrib.auth.models import Group, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import get_object_or_404
-from django.urls import reverse
 from django.utils import timezone
 from django.utils.functional import lazy
-from django.utils.html import format_html, format_html_join
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html
 
-from app_portal.library_admin import AuditedAdmin, LibraryFilter, without_popup_links
+from app_portal.library_admin import (
+    AuditedAdmin,
+    LibraryFilter,
+    record_creator,
+    without_popup_links,
+)
 from app_portal.models import (
     ContactRequest,
     Course,
@@ -28,7 +32,7 @@ from app_portal.models import (
     Run,
     person_name,
 )
-from app_portal.permissions import access_sources, people_with_access
+from app_portal.permissions import count_of, people_with_access
 from shared import storage
 from shared.descriptions import render_description
 
@@ -46,6 +50,31 @@ LogEntry._meta.verbose_name_plural = "activity"
 class PersonLibraryFilter(LibraryFilter):
     def filter_library(self, queryset, library):
         return queryset.filter(pk__in=people_with_access(library).values("pk"))
+
+
+class CreatorLibraryFilter(LibraryFilter):
+    title = "creator in library"
+    parameter_name = "creator_library"
+
+    def filter_library(self, queryset, library):
+        creators = Profile.creator_libraries.through.objects.filter(entragroup=library)
+        return queryset.filter(pk__in=creators.values("profile"))
+
+
+class CreatorFilter(admin.SimpleListFilter):
+    title = "creator"
+    parameter_name = "creator"
+
+    def lookups(self, request, model_admin):
+        return (("yes", "Creator in a library"), ("no", "Not a creator"))
+
+    def queryset(self, request, queryset):
+        assigned = Exists(
+            Profile.creator_libraries.through.objects.filter(profile=OuterRef("pk"))
+        )
+        if self.value() == "yes":
+            return queryset.filter(assigned)
+        return queryset.exclude(assigned) if self.value() == "no" else queryset
 
 
 class OwningLibraryFilter(LibraryFilter):
@@ -71,7 +100,7 @@ class PersonForm(forms.ModelForm):
 
     class Meta:
         model = Profile
-        fields = ("role", "local_admin", "is_active")
+        fields = ("creator_libraries", "local_admin", "is_active")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -80,32 +109,74 @@ class PersonForm(forms.ModelForm):
             if self.instance.user == self.actor:
                 self.fields["local_admin"].disabled = True
                 self.fields["is_active"].disabled = True
+            member = Profile.groups.through.objects.filter(profile=self.instance)
+            chosen = Profile.creator_libraries.through.objects.filter(profile=self.instance)
+            field = self.fields["creator_libraries"]
+            field.queryset = EntraGroup.objects.filter(
+                Q(pk__in=member.values("entragroup")) | Q(pk__in=chosen.values("entragroup"))
+            ).order_by("status", "name", "object_id")
+            field.label_from_instance = group_label
+
+
+def group_label(group):
+    # Name and ID together, so the filter box above each list finds a group by either.
+    name = "" if group.name == str(group.pk) else f"{group.name} · "
+    return f"{name}{group.pk}" + ("" if group.status == "enabled" else " · not enabled")
 
 
 @admin.register(Profile)
 class PersonAdmin(AuditedAdmin):
     form = PersonForm
     list_display = ("__str__", "access_role", "active", "membership", "last_seen")
-    list_filter = ("user__is_active", "role", "local_admin", "membership", PersonLibraryFilter)
+    list_filter = (
+        "user__is_active", CreatorFilter, "local_admin", "membership", PersonLibraryFilter,
+        CreatorLibraryFilter,
+    )
     list_select_related = ("user",)
     list_per_page = 50
     show_full_result_count = False
     search_fields = ("user__first_name", "user__last_name", "user__email", "user__username")
-    readonly_fields = ("user", "membership", "effective_access", "entra_groups", "last_seen")
+    readonly_fields = ("user", "membership", "entra_groups", "last_seen")
     fields = (
-        "user", "is_active", "role", "local_admin", "membership", "effective_access",
-        "entra_groups", "last_seen",
+        "user", "is_active", "creator_libraries", "local_admin", "membership", "entra_groups",
+        "last_seen",
     )
-    actions = ("make_creator", "make_viewer")
     ordering = ("user__first_name", "pk")
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("user")
+        chosen = Profile.creator_libraries.through.objects.filter(profile=OuterRef("pk"))
+        return super().get_queryset(request).select_related("user").annotate(
+            creator_total=count_of(chosen.filter(entragroup__status="enabled"), "profile"),
+            chosen_total=count_of(chosen, "profile"),
+        )
 
     def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
+        form = without_popup_links(super().get_form(request, obj, **kwargs))
         form.actor = request.user
         return form
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        if db_field.name == "creator_libraries":
+            # Django's two-box selector, as on its own user page for groups.
+            kwargs["widget"] = FilteredSelectMultiple("Entra groups", is_stacked=False)
+            kwargs["help_text"] = (
+                "Move a group to the right to make this person a creator there. The left box "
+                "lists the Entra groups this person belongs to; type a name or a group ID in "
+                "the filter to find one. A group that is not enabled does nothing until it "
+                "is enabled as a library."
+            )
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
+
+    def save_related(self, request, form, formsets, change):
+        profile = form.instance
+        before = set(profile.creator_libraries.values_list("pk", flat=True))
+        super().save_related(request, form, formsets, change)
+        after = set(profile.creator_libraries.values_list("pk", flat=True))
+        for library in sorted(before ^ after):
+            record_creator(request.user, profile, library, granted=library in after)
+        # The administrator has now decided this person's libraries: their next sign-in
+        # must not add any on account of the old global role.
+        Profile.objects.filter(pk=profile.pk, role="creator").update(role="viewer")
 
     @admin.display(boolean=True, description="Active", ordering="user__is_active")
     def active(self, obj):
@@ -127,11 +198,17 @@ class PersonAdmin(AuditedAdmin):
                 obj, changed_fields=["local_admin"], target_id=obj.user.username,
             )
 
-    @admin.display(description="Role", ordering="role")
+    @admin.display(description="Role", ordering="creator_total")
     def access_role(self, obj):
         if obj.local_admin or obj.user.is_superuser:
             return "Administrator"
-        return obj.get_role_display()
+        if not obj.creator_total:
+            # The old global role with nothing chosen: they get the libraries of a sign-in.
+            pending = obj.role == "creator" and not obj.chosen_total
+            return "Creator from next sign-in" if pending else "Viewer"
+        return f"Creator in {obj.creator_total} " + (
+            "library" if obj.creator_total == 1 else "libraries"
+        )
 
     def has_add_permission(self, request):
         return False
@@ -145,46 +222,9 @@ class PersonAdmin(AuditedAdmin):
     def has_view_permission(self, request, obj=None):
         return request.user.is_superuser
 
-    @admin.display(description="Effective library access")
-    def effective_access(self, obj):
-        rows = format_html_join(
-            mark_safe("<br>"), "{}: {}",
-            ((library, ", ".join(sources)) for library, sources in access_sources(obj).items()),
-        )
-        action = format_html(
-            '<a href="{}?profile={}">Add local library access</a> · '
-            '<a href="{}?profile__id__exact={}">History</a>',
-            reverse("admin:app_portal_librarygrant_add"), obj.pk,
-            reverse("admin:app_portal_librarygrant_changelist"), obj.pk,
-        )
-        admin_note = (
-            "Suspended: no access while inactive<br>" if not obj.user.is_active
-            else "Administrator: all enabled libraries<br>"
-            if obj.local_admin or obj.user.is_superuser else ""
-        )
-        return format_html(
-            "{}{}<br>{}", mark_safe(admin_note), rows or "No library access", action,
-        )
-
     @admin.display(description="Entra groups in the last complete sign-in")
     def entra_groups(self, obj):
         return ", ".join(str(group) for group in obj.groups.all())
-
-    @admin.action(description="Make creator")
-    @transaction.atomic
-    def make_creator(self, request, queryset):
-        for profile in queryset:
-            profile.role = "creator"
-            profile.save(update_fields=["role"])
-            self.log_change(request, profile, "Changed role to creator.")
-
-    @admin.action(description="Make viewer")
-    @transaction.atomic
-    def make_viewer(self, request, queryset):
-        for profile in queryset:
-            profile.role = "viewer"
-            profile.save(update_fields=["role"])
-            self.log_change(request, profile, "Changed role to viewer.")
 
 
 class CourseSharingForm(forms.ModelForm):
@@ -383,7 +423,7 @@ class RequestAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "id", "request", "sources", "follow_links", "generation_settings",
-                    "text_only", "correlation_id",
+                    "text_only", "episodes", "correlation_id",
                     "steps", "log", "result", "error_source", "cancel_requested", "last_seen",
                 ),
                 "classes": ("collapse",),

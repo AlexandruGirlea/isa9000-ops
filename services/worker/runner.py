@@ -4,6 +4,7 @@ import contextlib
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -11,13 +12,14 @@ import tempfile
 import threading
 import time
 import traceback
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 from isa9000.config import AZURE_SCOPE, load_config, update_config
-from isa9000.podcast import load_manifest
+from isa9000.podcast import load_manifest, member
 
 from shared import storage, telemetry
 from shared.generation import validate_generation
@@ -126,6 +128,7 @@ class Run:
                     json.dumps(self.task["manifest"], ensure_ascii=False), encoding="utf-8"
                 )
             self.refresh_manifest()
+            self.stage_new_takes()
             return []
         if self.task["task"] != "create":
             raise WorkerError("Unknown worker task.")
@@ -147,6 +150,25 @@ class Run:
         self.uploads = downloaded
         local = dict(zip(uploads, downloaded, strict=True))
         return [str(local.get(source, source)) for source in sources]
+
+    def stage_new_takes(self) -> None:
+        # A published episode is recorded again under new file names. Its current audio and
+        # transcript stay untouched, and the podcast moves to the new files only when the web
+        # saves the new manifest and page together. A failed run therefore changes nothing.
+        chosen = set(self.task.get("episodes", []))
+        if not chosen:
+            return
+        try:
+            for entry in self.manifest["episodes"]:
+                if isinstance(entry, dict) and entry.get("number") in chosen:
+                    take = f"{entry['number']:02d} - take-{uuid.uuid4().hex}.txt"
+                    shutil.copyfile(member(self.folder, entry["transcript"]), self.folder / take)
+                    entry["transcript"] = take
+        except (OSError, TypeError, ValueError):
+            raise WorkerError("The episode's transcript could not be found.") from None
+        (self.folder / "podcast.json").write_text(
+            json.dumps(self.manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
 
     def refresh_manifest(self, apply_title: bool = True) -> None:
         self.manifest = load_manifest(self.folder)
@@ -193,6 +215,9 @@ class Run:
                 command.append("--text-only")
         else:
             command += ["record", str(self.folder)]
+            if self.task["task"] == "record":
+                for number in self.task.get("episodes", []):
+                    command += ["--episode", str(number)]
         environment = {
             key: os.environ[key] for key in (
                 "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TMP", "TEMP",
@@ -269,6 +294,18 @@ class Run:
                 or not self.task["manifest"]["episodes"]
             ):
                 raise WorkerError("Invalid course manifest.")
+            episodes = self.task.get("episodes", [])
+            if (not isinstance(episodes, list)
+                    or any(type(number) is not int for number in episodes)):
+                raise WorkerError("Invalid episode selection.")
+            if episodes and (
+                self.task["task"] != "record" or "manifest" not in self.task
+                or not set(episodes) <= {
+                    entry.get("number") for entry in self.task["manifest"]["episodes"]
+                    if isinstance(entry, dict)
+                }
+            ):
+                raise WorkerError("Invalid episode selection.")
             config_path = os.environ.get("ISA9000_CONFIG", "/config/isa9000.toml")
             config = load_config(config_path)
             if not isinstance(self.task.get("text_only", False), bool):

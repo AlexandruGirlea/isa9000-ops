@@ -28,6 +28,9 @@ class ScaleTests(LibraryCase):
             for index in range(3000)
         ])
         self.profile.groups.set([group.pk for group in self.groups])
+        self.profile.creator_libraries.set(
+            [group.pk for group in self.groups if group.status == "enabled"]
+        )
 
     def count(self, path, headers, **data):
         with CaptureQueriesContext(connection) as queries:
@@ -36,6 +39,11 @@ class ScaleTests(LibraryCase):
         return len(queries), response
 
     def test_portal_queries_and_rows_stay_bounded(self):
+        if connection.vendor == "postgresql":
+            # Query counts alone miss expensive pagination aggregates. On this small
+            # catalogue, each SQL statement must finish well within five seconds.
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL statement_timeout = '5s'")
         token_headers = token(groups=[str(group.pk) for group in self.groups[:200]])
         library = self.groups[1]
         for path in ("/libraries/", "/libraries/new/", f"/libraries/{library.pk}/"):
@@ -68,7 +76,6 @@ class ScaleTests(LibraryCase):
             ("/admin/app_portal/profile/", 25),
             ("/admin/app_portal/course/", 25),
             ("/admin/app_portal/run/", 25),
-            ("/admin/app_portal/librarygrant/", 25),
             ("/admin/admin/logentry/", 25),
             (f"/admin/app_portal/course/{self.course.pk}/change/", 30),
             (f"/admin/app_portal/profile/{self.profile.pk}/change/", 30),

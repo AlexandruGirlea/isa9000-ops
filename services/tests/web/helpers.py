@@ -59,8 +59,9 @@ class PortalCase(TestCase):
         self.sales.refresh_from_db()
         self.engineering.refresh_from_db()
         self.user = get_user_model().objects.create_user(username=OID)
-        self.profile = Profile.objects.create(user=self.user, role="creator")
+        self.profile = Profile.objects.create(user=self.user)
         self.profile.groups.add(self.sales)
+        self.profile.creator_libraries.add(self.sales)
         self.manifest = {
             "title": "Sales course",
             "description": "Learning",

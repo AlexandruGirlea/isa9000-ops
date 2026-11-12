@@ -23,7 +23,7 @@
       </div>
       <div class="podcast-brief">
         <h3><label for="id_request">What should people learn?</label></h3>
-        <p class="hint">Describe your audience, what they should take away, and the length you have in mind.</p>
+        <p class="hint">Describe your audience, what they should take away, and the number of episodes you have in mind.</p>
         {{ form.request }}{{ form.request.errors }}
       </div>
     </section>
@@ -58,7 +58,7 @@
         <label for="id_quality">Quality{{ form.quality }}{{ form.quality.errors }}</label>
       </div>
       <div class="setting-field"><label for="id_pronunciations">Pronunciations</label>
-        <p class="hint">Help the narrator say product names and abbreviations. One per line: word = how to say it.</p>
+        <p class="hint">Help the narrator say product names and abbreviations. One per line: word = how to say it. Example: nginx = engine x</p>
         {{ form.pronunciations }}{{ form.pronunciations.errors }}
       </div>
       <details class="wording-settings" {% if form.greeting.errors or form.ending.errors or form.final_ending.errors %}open{% endif %}>

@@ -108,9 +108,14 @@ def main(argv: list[str] | None = None) -> int:
         _emit("done", "Demo transcripts are ready", folder=str(folder))
         return 0
 
+    # Like isa9000: named episodes are recorded again, otherwise only those without audio.
+    chosen = set(getattr(args, "episodes", None) or [])
     for episode in manifest["episodes"]:
         audio = Path(episode["transcript"]).with_suffix(".mp3").name
-        if episode.get("audio") and (folder / episode["audio"]).is_file():
+        if chosen:
+            if episode["number"] not in chosen:
+                continue
+        elif episode.get("audio") and (folder / episode["audio"]).is_file():
             continue
         _emit("record", "Recording silent demo audio", current=episode["number"],
               total=len(manifest["episodes"]), folder=str(folder))

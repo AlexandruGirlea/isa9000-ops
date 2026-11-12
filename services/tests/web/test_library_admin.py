@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
 from unittest import skipUnless
-from unittest.mock import patch
 
 import jwt
-from app_portal.models import Course, EntraGroup, LibraryGrant, Profile
+from app_portal.models import Course, EntraGroup
 from app_portal.permissions import groups_for
 from core.audit import record
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -16,9 +14,7 @@ from django.db import DatabaseError, connection, transaction
 from django.utils import timezone
 
 from .helpers import (
-    ADMIN_OID,
     CLIENT,
-    ENGINEERING,
     OTHER,
     SALES,
     TENANT,
@@ -161,64 +157,16 @@ class AdminCatalogueTests(LibraryCase):
             object_id=str(group.pk), change_message__contains="admin.change",
         ).exists())
 
-
-class LocalAccessRecordTests(LibraryCase):
-    def setUp(self):
-        super().setUp()
-        self.client.get("/libraries/", **administrator())
-        self.grant = LibraryGrant.objects.create(
-            profile=self.profile, library=self.engineering, reason="Test",
-            granted_by=Profile.objects.get(user__username=ADMIN_OID).user,
+    def test_local_library_access_is_gone_from_the_admin(self):
+        for path in ("/admin/app_portal/librarygrant/", "/admin/app_portal/librarygrant/add/"):
+            self.assertEqual(self.status(path, administrator()), 404)
+        page = self.client.get(
+            f"/admin/app_portal/profile/{self.profile.pk}/change/", **administrator(),
         )
-
-    def test_reason_and_expiry_are_optional_and_no_expiry_means_no_end(self):
-        library = EntraGroup.objects.create(object_id=uuid.uuid4(), name="Open", status="enabled")
-        response = self.client.post(
-            "/admin/app_portal/librarygrant/add/",
-            {"profile": self.profile.pk, "library": str(library.pk), "_save": "Save"},
-            **administrator(),
+        self.assertEqual(page.status_code, 200)
+        for text in ("ocal library access", "Effective library access"):
+            self.assertNotContains(page, text)
+        library = self.client.get(
+            f"/admin/app_portal/entragroup/{SALES}/change/", **administrator(),
         )
-        self.assertEqual(response.status_code, 302)
-        grant = LibraryGrant.objects.get(library=library)
-        self.assertEqual(grant.reason, "")
-        self.assertIsNone(grant.expires)
-        self.assertTrue(LibraryGrant.objects.active().filter(pk=grant.pk).exists())
-        with patch(
-            "django.utils.timezone.now", return_value=timezone.now() + timedelta(days=3650),
-        ):
-            self.assertTrue(LibraryGrant.objects.active().filter(pk=grant.pk).exists())
-
-    def test_records_cannot_be_edited_or_deleted(self):
-        change = f"/admin/app_portal/librarygrant/{self.grant.pk}/change/"
-        response = self.client.post(change, {"reason": "Edited"}, **administrator())
-        self.assertEqual(response.status_code, 403)
-        delete = f"/admin/app_portal/librarygrant/{self.grant.pk}/delete/"
-        response = self.client.post(delete, {"post": "yes"}, **administrator())
-        self.assertEqual(response.status_code, 403)
-        self.grant.refresh_from_db()
-        self.assertEqual(self.grant.reason, "Test")
-
-    def test_revoking_and_closing_expired_access_is_audited(self):
-        self.client.post(
-            "/admin/app_portal/librarygrant/",
-            {"action": "revoke", "_selected_action": self.grant.pk}, **administrator(),
-        )
-        self.assertTrue(LogEntry.objects.filter(
-            object_id=str(self.grant.pk), change_message__contains="library_access.revoked",
-        ).exists())
-        expired = LibraryGrant.objects.create(
-            profile=self.profile, library=self.engineering, reason="Old",
-            granted_by=self.grant.granted_by, expires=timezone.now() - timedelta(days=1),
-        )
-        response = self.client.post(
-            "/admin/app_portal/librarygrant/add/",
-            {
-                "profile": self.profile.pk, "library": ENGINEERING, "reason": "New",
-                "_save": "Save",
-            },
-            **administrator(),
-        )
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(LogEntry.objects.filter(
-            object_id=str(expired.pk), change_message__contains="library_access.revoked",
-        ).exists())
+        self.assertNotContains(library, "Local access records")

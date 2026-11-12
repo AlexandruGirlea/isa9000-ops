@@ -116,15 +116,15 @@ Resource group → Overview → the web Container App
    └─ Metrics      CPU, memory and request charts
 ```
 
-Log stream needs a running replica. A web app that scaled to zero when idle, the
-dev/test default, shows nothing until someone opens the site.
+Log stream needs a running replica; the web app always keeps at least one. The worker
+(`isa9000-<environment>-worker`) is a Container App too, with the same menu.
 
-**4. Container Apps Jobs** (`isa9000-<environment>-worker`, `-watchdog` and `-migrate`)
-run a container once and exit: the worker for each queued task, the watchdog every five
-minutes and the database migration during a deployment.
+**4. Container Apps Jobs** (`isa9000-<environment>-watchdog` and `-migrate`) run a
+container once and exit: the watchdog every five minutes and the database migration
+during a deployment.
 
 ```
-Resource group → Overview → the worker, watchdog or migrate Job
+Resource group → Overview → the watchdog or migrate Job
 └─ left menu → Execution history
    └─ one row per run: Succeeded, Failed or Running, with its start time
       └─ click a failed run → its console and system logs
@@ -143,7 +143,7 @@ Resource group → left menu → Monitoring → Alerts
 │  ├─ failed-runs           runs that failed
 │  ├─ server-errors         web app server errors (HTTP 5xx)
 │  ├─ denied-access         denied sign-ins, admin requests or worker callbacks
-│  ├─ worker-executions     a worker job failed or timed out
+│  ├─ worker-executions     a worker container crashed or could not start
 │  └─ dead-letters          queue messages that were dead-lettered
 └─ top bar → Action groups  who gets the email (the alertEmail address)
 ```

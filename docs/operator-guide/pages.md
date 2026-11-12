@@ -36,15 +36,15 @@ Creators also have creation, progress, review and management pages. Administrato
 
 - **Navbar:** **Libraries**, **History** (creators), **Admin** (administrators).
 - **Breadcrumbs:** **Libraries → group library → podcast**, continuing into management and progress pages.
-- **Admin models:** **Libraries / Entra groups**, **Local library access**, **Podcasts**, **Runs**, **Users**.
+- **Admin models:** **Libraries / Entra groups**, **Podcasts**, **Runs**, **Users**.
 - **Layout:** reuses isa9000 presentation templates and cards; responsive navigation; footer stays at the bottom on short pages.
 
 ## Library list rules
 
 - **Viewers** see a card only when an enabled library has a ready podcast.
 - **Example:** membership in five libraries with podcasts in two gives two cards.
-- **Creators and administrators** see every enabled library they can access, including empty ones and drafts.
-- **Add podcast** lets creators choose any enabled library they can access.
+- **Creators** see the libraries they create in, including empty ones and drafts. **Administrators** see every enabled library.
+- **Add podcast** lets creators choose any library they create in.
 - Library and podcast pages show 24 cards per page.
 
 ## Search

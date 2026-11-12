@@ -54,6 +54,7 @@ Four decisions:
 - **Per-podcast settings:** voice, narrator name, pronunciation entries, greetings, endings and quality start with the organization's defaults and are saved for that podcast.
 - **Deployment-controlled:** provider, models, credentials, paths, fact-checking and brand identity.
 - **Saved settings:** follow recording and retries. A creator never rewrites the shared configuration.
+- **Pronunciations** can be edited later on **Manage**; the change applies the next time audio is recorded.
 
 ### Review, cancel and retry
 
@@ -98,6 +99,7 @@ stateDiagram-v2
 | `draft` (start) | `ready` or `needs_review` on successful creation |
 | Any | `ready` when approved transcripts are recorded |
 | `ready` | `needs_review` when published transcripts are edited, until approved and recorded again |
+| `ready` | Stays `ready` while **Regenerate audio** records one episode again; the new audio replaces the old only when that run succeeds |
 | Any | Failed or canceled runs change nothing |
 
 A render updates its page.
@@ -114,7 +116,7 @@ Django deletes a whole podcast's files and database rows. Deleting one episode r
 
 ## The worker
 
-The worker has no database and keeps nothing between runs. It takes a task, runs isa9000, uploads the files, sends back the podcast page and exits. It scales out with one container per task.
+The worker has no database and keeps nothing between runs. It takes a task, runs isa9000, uploads the files, sends back the podcast page and exits; its replica then starts it again. At least one replica is always running, and the queue adds more, one task per replica, up to `workerMaxExecutions`.
 
 1. Receive one queue message, waiting up to 30 seconds; exit if there is none.
 2. Ask Django to accept the run. A duplicate or inactive run is completed and skipped. Failed acceptance abandons the message for redelivery; the queue dead-letters it after its delivery limit.
@@ -122,3 +124,5 @@ The worker has no database and keeps nothing between runs. It takes a task, runs
 4. Upload available results, render the page when ready, report the outcome and exit.
 
 > **Note:** The message is completed before execution. The watchdog detects a worker crash after acceptance; a user retry creates a new run.
+
+> **Note:** Azure gives a replica 600 seconds to finish when it removes it, on scale-in or a new revision. A task cut off this way stops sending heartbeats, so the watchdog fails its run and the creator can retry.

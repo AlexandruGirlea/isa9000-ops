@@ -25,7 +25,7 @@ services/
 | Company copy that builds its own | `REGISTRY.azurecr.io/isa9000-ops:<version>` |
 
 - **Worker command:** `python -m worker`.
-- **Worker** installs `isa9000==0.3.0` and invokes its CLI.
+- **Worker** installs `isa9000==0.3.5` and invokes its CLI.
 - **Django** owns users, permissions, library navigation, saved runs and podcast HTML.
 
 ## Editing a podcast
@@ -36,6 +36,8 @@ services/
 - **Edit podcast** on the published player opens **Manage** for administrators and creators in the owning library, including another creator's podcasts. Other libraries remain inaccessible.
 - **Administrators and creators in the owning library can update:** title (up to 80 characters), description and cover.
 - **Updating** details or the cover rebuilds the published page without model calls; existing audio stays the same.
+- **Regenerate audio** on **Manage** records one published episode again; the published audio stays until the new recording succeeds.
+- **Manage** also lists the podcast's sources and lets creators edit its pronunciations.
 
 ## Covers
 
@@ -104,7 +106,7 @@ When review is needed:
 ## Accounts, groups and database
 
 - **Account system:** one, Entra.
-- **Directory membership:** one source, Entra groups, optionally supplemented by audited local grants.
+- **Directory membership:** one source, Entra groups.
 - **Application database:** one, Postgres.
 
 See the [architecture overview](../architecture.md) for the main generation path.
