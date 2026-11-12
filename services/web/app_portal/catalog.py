@@ -12,8 +12,9 @@ from isa9000.presentation_website import _total_duration
 
 from app_portal.permissions import (
     addable_libraries,
+    creates_in,
+    creator_libraries,
     group_for,
-    groups_for,
     is_creator,
     visible_courses,
     visible_libraries,
@@ -86,19 +87,20 @@ def add_podcast(request):
 @require_safe
 def library(request, group_id):
     group = group_for(request.user, group_id)
-    creator = is_creator(request.user)
+    creator = creates_in(request.user, group.pk)
     query = catalog_query(request)
-    rows = visible_courses(request.user, group).defer("html").order_by("-created", "-id")
+    rows = visible_courses(group, drafts=creator).defer("html").order_by("-created", "-id")
     if query:
         rows = rows.filter(Q(title__icontains=query) | Q(description__icontains=query))
     pages = catalog_page(request, rows)
+    # A shared podcast is managed by the creators of its owning library, wherever it is listed.
     managed_groups = (
         set(
-            groups_for(request.user)
+            creator_libraries(request.user)
             .filter(pk__in={course.group_id for course in pages})
             .values_list("pk", flat=True)
         )
-        if creator else set()
+        if is_creator(request.user) else set()
     )
     items = []
     for course in pages:

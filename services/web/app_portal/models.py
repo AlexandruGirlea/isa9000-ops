@@ -32,8 +32,8 @@ class EntraGroup(models.Model):
         "Groups appear here this way automatically when a member signs in. Hiding a library "
         "stops its pages, audio and shared podcasts. All data is kept, and setting Enabled again "
         "restores it.<br>"
-        "<b>Enabled:</b> a library. Creators and administrators see it straight away and can add "
-        "podcasts to it. Other members see it once it has a published podcast.",
+        "<b>Enabled:</b> a library. Its creators and administrators see it straight away and can "
+        "add podcasts to it. Other members see it once it has a published podcast.",
     )
 
     class Meta:
@@ -50,11 +50,21 @@ class EntraGroup(models.Model):
 
 class Profile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    # Creators are assigned per library. "creator" here is left over from the global role and
+    # only means: at a sign-in, give this person that sign-in's libraries if they have none.
+    # An administrator's edit of the person's libraries resets it. The untouched column also
+    # keeps the previous release working during a rolling update and after a rollback.
     role = models.CharField(
         max_length=7, choices=[("viewer", "Viewer"), ("creator", "Creator")], default="viewer"
     )
     groups = models.ManyToManyField(
         EntraGroup, related_name="people", blank=True, verbose_name="Entra groups"
+    )
+    # A group can be chosen before it is enabled as a library; it counts once it is.
+    creator_libraries = models.ManyToManyField(
+        EntraGroup, related_name="creators", blank=True, verbose_name="creator in libraries",
+        help_text="This person can create and manage podcasts in these libraries. They also "
+        "need access to each one: Entra membership or local library access.",
     )
     membership = models.CharField(
         "directory membership",
@@ -229,6 +239,9 @@ class Run(models.Model):
     follow_links = models.BooleanField(default=False)
     generation_settings = models.JSONField(default=dict, blank=True)
     text_only = models.BooleanField(default=False)
+    # Episode numbers to record again. Empty on every other run, and nullable so the previous
+    # release keeps adding runs during a rolling update.
+    episodes = models.JSONField(null=True, blank=True)
     correlation_id = models.CharField(max_length=32)
     status = models.CharField(
         max_length=12,

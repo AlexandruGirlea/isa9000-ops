@@ -19,6 +19,7 @@ from django.utils import timezone
 from opentelemetry import trace
 
 from core import sessions
+from core.audit import record
 from core.views import error_page
 from shared import telemetry
 
@@ -165,7 +166,7 @@ class IdentityMiddleware:
             if settings.AUTH_MODE == "easyauth":
                 request.session.flush()
             sessions.start(request.session, oid, request=request)
-        if settings.GRAPH_GROUPS and person.get("membership") == "overage":
+        if settings.GRAPH_GROUPS:
             from core.entra import graph_groups
 
             listed = graph_groups(request, person)
@@ -205,6 +206,21 @@ class IdentityMiddleware:
                 ignore_conflicts=True,
             )
             profile.groups.set(groups)
+        # Preserve an existing creator whose libraries were unknown at the upgrade.
+        # New profiles always start as viewers and receive no automatic creator rights.
+        if (
+            profile.role == "creator" and membership == "complete"
+            and not profile.creator_libraries.exists()
+        ):
+            libraries = list(EntraGroup.objects.filter(pk__in=groups, status="enabled"))
+            profile.creator_libraries.add(*libraries)
+            for library in libraries:
+                record(
+                    user, "library_creator.granted", profile,
+                    changed_fields=["creator_libraries"], group_id=str(library.pk),
+                    state="creator before the upgrade",
+                    target_id=oid,
+                )
         now = timezone.now()
         if (now - profile.last_seen).total_seconds() >= 300:
             profile.last_seen = now

@@ -12,23 +12,36 @@
 <nav class="portal-breadcrumb" aria-label="Breadcrumb"><a href="/libraries/">Libraries</a><span>›</span><a href="/libraries/{{ course.group_id }}/">{{ course.group }}</a><span>›</span>{% if course.status == 'ready' %}<a href="/courses/{{ course.id }}/">{{ course.title }}</a><span>›</span>{% endif %}<span>Manage</span></nav>
 <div class="portal-heading"><h1>{{ course.title or 'Untitled podcast' }}</h1>{% if course.status == 'ready' %}<a class="px-btn px-btn-theme" href="/courses/{{ course.id }}/"><i class="bi bi-play-circle" aria-hidden="true"></i> Listen</a>{% endif %}</div>
 <div class="generation-workspace">
-{% if active_run %}<section class="card run-callout"><div><h2>{{ 'Recording your approved transcripts' if active_run.task == 'record' else 'A run is in progress' }}</h2><p class="hint">{{ 'Audio will be published to this library when recording finishes.' if active_run.task == 'record' else 'Follow progress while isa9000 works on this podcast.' }}</p></div><a class="button-link" href="/runs/{{ active_run.id }}/">Follow progress <i class="bi bi-arrow-right" aria-hidden="true"></i></a></section>
+{% if active_run %}<section class="card run-callout"><div>
+  {% if active_run.episodes %}<h2>Recording new audio for episode {{ active_run.episodes|join(', ') }}</h2><p class="hint">This podcast keeps playing its current audio until the new recording is ready.</p>
+  {% elif active_run.task == 'record' %}<h2>Recording your approved transcripts</h2><p class="hint">Audio will be published to this library when recording finishes.</p>
+  {% else %}<h2>A run is in progress</h2><p class="hint">Follow progress while isa9000 works on this podcast.</p>{% endif %}
+  </div><a class="button-link" href="/runs/{{ active_run.id }}/">Follow progress <i class="bi bi-arrow-right" aria-hidden="true"></i></a></section>
 {% elif course.status == 'needs_review' %}{% include "review_actions.html" %}{% endif %}
 <div class="workspace-grid">
-  {% if prompt %}<section class="card"><h2>Prompt</h2><p>{{ prompt }}</p></section>{% endif %}
+  <div class="workspace-column">
+  {% if prompt %}<section class="card"><h2>Prompt</h2><p>{{ prompt }}</p>
+    {% if sources %}<h3 style="font-size:1rem">Sources</h3>
+    {% for source in sources %}<p class="mono">{% if source.url %}<a class="link-btn" href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.url }}</a>{% else %}{{ source.file }} <span class="hint">· uploaded file</span>{% endif %}</p>{% endfor %}
+    {% if sources|selectattr('url')|first %}<p class="hint">{{ 'Pages linked from these URLs were also read, up to 25.' if follow_links else 'Pages linked from these URLs were not read.' }}</p>{% endif %}{% endif %}
+  </section>{% endif %}
   <section class="card" id="episodes"><div class="card-head"><h2>Episodes</h2><span class="hint">{{ episodes|length }} {{ 'episode' if episodes|length == 1 else 'episodes' }}</span></div>
-    <p class="hint">Open each transcript to read or edit its wording. Edits need approval before new audio is recorded.{% if active %} Editing is locked while this run is in progress.{% endif %}</p>
+    <p class="hint">Open each transcript to read or edit its wording. An edit needs your approval; then only the edited episode is recorded again and the others keep their audio.{% if active %} Editing is locked while this run is in progress.{% endif %}</p>
     {% for episode in episodes %}<article class="ep">
       <div class="eph"><span class="num">{{ '%02d'|format(episode.number|int) }}</span><h3 class="t" style="font-size:1rem">{{ episode.title }}</h3></div>
       {% if episode.get('edited') %}<p class="hint">Edited since AI review</p>{% elif episode.get('score') is not none %}<p class="hint">AI review: {{ episode.score }}/10</p>{% endif %}
+      <p class="hint episode-audio">{% if episode.get('audio') %}Audio recorded{% if episode.get('seconds') %} · {{ '%d:%02d'|format(episode.seconds|int // 60, episode.seconds|int % 60) }}{% endif %}{% elif course.status == 'needs_review' %}{{ 'New audio' if episode.get('edited') else 'Audio' }} is recorded when you approve{% else %}No audio yet{% endif %}</p>
+      {% if episode.get('audio_note') %}<p class="warn">Recording note: {{ episode.audio_note }}</p>{% endif %}
       {% if episode.get('issues') or episode.get('unverified') %}<details class="episode-notes"><summary>{{ 'Earlier draft notes' if episode.get('edited') else 'Review notes' }}{% if episode.get('unverified') %} · {{ episode.unverified|length }} unverified {{ 'claim' if episode.unverified|length == 1 else 'claims' }}{% endif %}</summary>
         {% if episode.get('issues') %}<p class="hint">{{ episode.issues }}</p>{% endif %}
         {% for issue in episode.get('unverified', []) %}<p class="warn">{{ issue }}</p>{% endfor %}
       </details>{% endif %}
       <div class="row-actions">{% if episode.transcript_url %}<button type="button" class="ghost review-transcript" data-transcript-url="{{ episode.transcript_url }}" data-episode-title="{{ episode.title }}">Read transcript <i class="bi bi-file-text" aria-hidden="true"></i></button>{% endif %}
+      {% if not active and course.status == 'ready' and episode.get('audio') %}<form method="post">{{ csrf_input }}<input type="hidden" name="episode" value="{{ episode.number }}"><button class="ghost episode-rerecord" name="action" value="rerecord_episode" data-confirm="Record new audio for this episode only? It uses model credits and counts as one of your runs today. The current audio keeps playing until the new recording is ready.">Regenerate audio <i class="bi bi-arrow-repeat" aria-hidden="true"></i></button></form>{% endif %}
       {% if not active %}<form method="post">{{ csrf_input }}<input type="hidden" name="episode" value="{{ episode.number }}"><button class="ghost danger episode-delete" name="action" value="delete_episode" data-confirm="Delete this episode?">Delete episode</button></form>{% endif %}</div>
     </article>{% else %}<p class="hint">Episodes will appear when the transcripts are ready.</p>{% endfor %}
   </section>
+  </div>
   <div class="workspace-column">
     <section class="card" id="podcast-settings"><h2>Podcast settings</h2>
       <details class="wording-settings" open><summary>Edit podcast details</summary>
@@ -47,12 +60,19 @@
     {% include "cover_settings.html" %}
     {% if course.generation_settings %}<section class="card"><h2>Voice settings</h2>
       <dl class="settings-summary"><dt>Narrator</dt><dd>{{ course.generation_settings.name }}</dd><dt>Voice</dt><dd>{{ course.generation_settings.voice }}</dd><dt>Quality</dt><dd>{{ course.generation_settings.quality|capitalize }}</dd></dl>
-      {% if course.generation_settings.pronunciations %}<details class="wording-settings"><summary>Pronunciations</summary><dl class="settings-summary">{% for term, spoken in course.generation_settings.pronunciations.items() %}<dt>{{ term }}</dt><dd>{{ spoken }}</dd>{% endfor %}</dl></details>{% endif %}
+      <details class="wording-settings" open><summary>Pronunciations</summary>
+      {% if active %}<p class="hint">You can change pronunciations when the current run finishes.</p>
+      {% else %}<form method="post">{{ csrf_input }}
+        <p class="hint">Help the narrator say product names and abbreviations. One per line: word = how to say it. Example: nginx = engine x</p>
+        {{ voice_form.pronunciations }}{{ voice_form.pronunciations.errors }}
+        <p class="hint">Used the next time audio is recorded. Regenerate an episode's audio to hear the change.</p>
+        <button class="primary" name="action" value="pronunciations">Save pronunciations</button>
+      </form>{% endif %}</details>
       <details class="wording-settings"><summary>Greeting and endings</summary><dl class="settings-summary"><dt>Greeting</dt><dd>{{ course.generation_settings.greeting or 'None' }}</dd><dt>Ending</dt><dd>{{ course.generation_settings.ending or 'None' }}</dd><dt>Final ending</dt><dd>{{ course.generation_settings.final_ending or 'None' }}</dd></dl></details>
       <p class="hint" style="margin-top:16px">Saved with this podcast and used when recording.</p>
     </section>{% endif %}
     <section class="card"><details><summary>Run history · {{ runs|length }}</summary>
-      {% for run in runs %}<a class="history-item" href="/runs/{{ run.id }}/"><strong>{{ run.get_task_display() }} · {{ run.get_status_display() }}</strong><span class="hint">{{ run.created.strftime('%d %B %Y, %H:%M') }} UTC</span></a>{% else %}<p class="hint">No runs.</p>{% endfor %}
+      {% for run in runs %}<a class="history-item" href="/runs/{{ run.id }}/"><strong>{{ run.get_task_display() }}{% if run.episodes %} episode {{ run.episodes|join(', ') }}{% endif %} · {{ run.get_status_display() }}</strong><span class="hint">{{ run.created.strftime('%d %B %Y, %H:%M') }} UTC</span></a>{% else %}<p class="hint">No runs.</p>{% endfor %}
     </details></section>
     {% if not active %}<section class="card"><details><summary>Delete podcast</summary><p class="hint">Removes this podcast, its episodes and its files from the library.</p><form method="post">{{ csrf_input }}<button class="ghost danger" name="action" value="delete_course" data-confirm="Delete this podcast and its files?">Delete podcast</button></form></details></section>{% endif %}
   </div>

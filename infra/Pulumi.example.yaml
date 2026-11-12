@@ -20,7 +20,7 @@ config:
   # isa9000:graphGroups: true
   isa9000:workerMaxExecutions: 5
   # For production set environment: prod. Defaults then become:
-  # web 2 vCPU / 4 GiB, 1-5 replicas; workers 2 vCPU / 4 GiB, 0-5 executions;
+  # web 2 vCPU / 4 GiB, 1-5 replicas; workers 2 vCPU / 4 GiB, 1-5 replicas;
   # PostgreSQL GeneralPurpose Standard_D2ds_v5, no standby, 128 GiB + autogrow,
   # 35-day geo backups; GZRS blobs with versioning/30-day recovery; Standard queue.
   # Prod creates a zone-redundant Container Apps environment and dedicated VNet.

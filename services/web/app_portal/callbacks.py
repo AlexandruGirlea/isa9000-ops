@@ -116,6 +116,20 @@ def callback(request, run_id, action):
                         "Could not delete canceled files",
                         extra={"run_id": str(run.id), "course_id": str(course.id)},
                     )
+        if run.task == "create" and state in {"ready", "needs_review"}:
+            try:
+                storage.delete_blobs(
+                    source for source in run.sources if source.startswith("uploads/")
+                )
+            except AzureError:
+                telemetry.log(__name__).error(
+                    "Could not delete used uploads",
+                    extra={"run_id": str(run.id), "course_id": str(course.id)},
+                )
+        if run.episodes and state != "ready":
+            # A new take of a published episode counts only when the whole run succeeds. Until
+            # then the podcast keeps the manifest, and so the files, that its page plays.
+            manifest = None
         if manifest is not None:
             course.manifest = manifest
             course.title = manifest.get("title", course.title)
@@ -123,7 +137,10 @@ def callback(request, run_id, action):
             course.cover = manifest.get("cover") or ""
         if state == "ready":
             course.html = html
-        if run.task in {"create", "record"} and state in {"ready", "needs_review"}:
+        if (
+            run.task in {"create", "record"} and state in {"ready", "needs_review"}
+            and (not run.episodes or state == "ready")
+        ):
             course.status = state
         course.save()
         run.status, run.finished, run.last_seen = state, now, now

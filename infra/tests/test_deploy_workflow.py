@@ -60,7 +60,7 @@ def test_workloads_roll_out_only_after_successful_migration(tmp_path, status):
     updates = [line for line in log if line.startswith("pulumi up ")]
     assert "--exclude-dependents" in updates[0]
     for resource in (
-        "ContainerApp::web", "Job::worker", "Job::watchdog",
+        "ContainerApp::web", "Job::worker", "ContainerApp::worker", "Job::watchdog",
         "ContainerAppsAuthConfig::easyauth", "ScheduledQueryRule::worker-executions",
         "RoleAssignment::web-secret-database", "RoleAssignment::watchdog-secret-database",
     ):
@@ -78,3 +78,65 @@ def test_workloads_roll_out_only_after_successful_migration(tmp_path, status):
     else:
         assert result.returncode != 0
         assert len(updates) == 1
+
+
+@pytest.mark.parametrize(
+    "legacy_exists, active_count, query_failure, allowed",
+    [
+        (False, "0", "", True),
+        (True, "0", "", True),
+        (True, "1", "", False),
+        (True, "", "", False),
+        (True, "unexpected", "", False),
+        (False, "0", "list", False),
+        (True, "0", "execution", False),
+    ],
+)
+def test_legacy_worker_must_be_idle_before_replacement(
+    tmp_path, legacy_exists, active_count, query_failure, allowed,
+):
+    commands = tmp_path / "commands.log"
+    for name in ("pulumi", "az", "python"):
+        executable = tmp_path / name
+        executable.write_text(
+            "#!/bin/sh\n"
+            'printf "%s %s\\n" "${0##*/}" "$*" >> "$COMMAND_LOG"\n'
+            'case "${0##*/}:$1:$2:$3" in\n'
+            '  pulumi:stack:output:resourceGroup) printf "test-group\\n" ;;\n'
+            '  az:containerapp:job:list)\n'
+            '    [ "$QUERY_FAILURE" != list ] || exit 1\n'
+            '    [ "$LEGACY_EXISTS" != true ] || printf "isa9000-prod-worker\\n" ;;\n'
+            '  az:containerapp:job:execution)\n'
+            '    [ "$QUERY_FAILURE" != execution ] || exit 1\n'
+            '    printf "%s\\n" "$ACTIVE_COUNT" ;;\n'
+            "esac\n"
+        )
+        executable.chmod(0o755)
+    steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["deploy"]["steps"]
+    rollout = next(step for step in steps if step.get("name") == "Roll out application")
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", rollout["run"]],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "COMMAND_LOG": str(commands),
+            "STACK": "prod",
+            "LEGACY_EXISTS": str(legacy_exists).lower(),
+            "ACTIVE_COUNT": active_count,
+            "QUERY_FAILURE": query_failure,
+        },
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    log = commands.read_text().splitlines()
+    assert (result.returncode == 0) is allowed, result.stderr
+    updates = [line for line in log if line.startswith("pulumi up ")]
+    assert len(updates) == int(allowed)
+    assert not any("job stop" in line or "job delete" in line for line in log)
+    queries = [line for line in log if line.startswith("az containerapp job execution list ")]
+    if queries:
+        assert "--name isa9000-prod-worker" in queries[0]
+        for terminal in ("Succeeded", "Failed", "Stopped"):
+            assert f"properties.status!='{terminal}'" in queries[0]
+        if allowed:
+            assert log.index(queries[0]) < log.index(updates[0])

@@ -186,6 +186,68 @@ def test_record_after_review_and_render(monkeypatch, task, local_worker):
     assert "This local demonstration uses silent audio" in recorder.result["html"]
 
 
+@pytest.mark.parametrize("render_fails", [False, True])
+def test_regenerating_one_episode_records_only_that_episode(
+    monkeypatch, task, local_worker, render_fails,
+):
+    monkeypatch.setenv("ISA9000_STUB_EXIT", "0")
+    recorder = Recorder()
+    assert runner.run_task(task, recorder) == 0
+    prefix = f"courses/{task['course_id']}/"
+    before = {
+        name: data for name, data in local_worker[0].items() if name.endswith((".mp3", ".txt"))
+    }
+    task.update(task="record", manifest=copy.deepcopy(recorder.result["manifest"]), episodes=[2])
+    start = MagicMock(wraps=runner.subprocess.Popen)
+    monkeypatch.setattr(runner.subprocess, "Popen", start)
+    if render_fails:
+        monkeypatch.setattr(
+            runner, "render_course", MagicMock(side_effect=ValueError("Render failed")),
+        )
+    recorder.calls.clear()
+    assert runner.run_task(task, recorder) == int(render_fails)
+    command = start.call_args.args[0]
+    assert command[-4] == "record" and command[-2:] == ["--episode", "2"]
+    result = recorder.result
+    assert result["state"] == ("failed" if render_fails else "ready")
+    first, second = result["manifest"]["episodes"]
+    assert first == task["manifest"]["episodes"][0]
+    for key in ("audio", "transcript"):
+        assert second[key] != task["manifest"]["episodes"][1][key]
+        assert prefix + second[key] in local_worker[0]
+    assert all(local_worker[0][name] == data for name, data in before.items())
+    assert {body.get("current") for action, body in recorder.calls
+            if action == "progress" and body.get("stage") == "record"} == {2}
+    if render_fails:
+        assert result["html"] is None
+    else:
+        assert "<!DOCTYPE html>" in result["html"]
+
+
+@pytest.mark.parametrize("failure", ["record", "cancel", "missing_transcript"])
+def test_unsuccessful_episode_regeneration_preserves_published_files(
+    monkeypatch, task, local_worker, failure,
+):
+    monkeypatch.setenv("ISA9000_STUB_EXIT", "0")
+    initial = Recorder()
+    assert runner.run_task(task, initial) == 0
+    manifest = copy.deepcopy(initial.result["manifest"])
+    task.update(task="record", manifest=manifest, episodes=[2])
+    if failure == "missing_transcript":
+        del local_worker[0][f"courses/{task['course_id']}/{manifest['episodes'][1]['transcript']}"]
+    before = {
+        name: data for name, data in local_worker[0].items() if name.endswith((".mp3", ".txt"))
+    }
+    if failure == "record":
+        monkeypatch.setenv("ISA9000_STUB_EXIT", "1")
+    recorder = Recorder(cancel_stage="record" if failure == "cancel" else None)
+    assert runner.run_task(task, recorder) == int(failure != "cancel")
+    assert recorder.result["state"] == ("stopped" if failure == "cancel" else "failed")
+    assert recorder.result["html"] is None
+    assert all(local_worker[0][name] == data for name, data in before.items())
+    assert not any("take-" in name and name.endswith(".mp3") for name in local_worker[0])
+
+
 def test_downloads_exact_original_upload_names(monkeypatch, task, local_worker):
     monkeypatch.setenv("ISA9000_STUB_EXIT", "3")
     name = "uploads/original-run/pricing.pdf"
@@ -258,6 +320,15 @@ def test_concurrent_foundry_token_refreshes(monkeypatch, task, tmp_path):
     {"description": "x" * 10001},
     {"task": "record", "manifest": {}},
     {"task": "record", "manifest": "invalid"},
+    {"task": "record", "manifest": {"episodes": [{"number": 1}]}, "episodes": [2]},
+    {"task": "record", "manifest": {"episodes": [{"number": 1}]}, "episodes": ["1"]},
+    {"task": "record", "manifest": {"episodes": [{"number": 1}]}, "episodes": [True]},
+    {"task": "record", "manifest": {"episodes": [{"number": 1}]}, "episodes": "1"},
+    {"task": "record", "episodes": [1]},
+    {"episodes": [1]},
+    {"episodes": None},
+    {"episodes": ""},
+    {"episodes": {}},
 ])
 def test_refuses_noncontract_sources(invalid, task, local_worker, monkeypatch):
     task.update(invalid)

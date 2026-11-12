@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
 from io import StringIO
 
 from app_portal.models import Course, EntraGroup, LibraryGrant, Profile
@@ -9,7 +8,6 @@ from django.contrib.admin.models import LogEntry
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.utils import timezone
 
 from .helpers import (
     ADMIN,
@@ -24,28 +22,23 @@ from .helpers import (
 )
 
 
-class LocalAccessTests(LibraryCase):
-    def setUp(self):
-        super().setUp()
-        self.grantor = get_user_model().objects.create_user(username=ADMIN_OID)
-        Profile.objects.create(user=self.grantor)
-
-    def grant(self, library=None, profile=None, **fields):
-        return LibraryGrant.objects.create(
-            profile=profile or self.profile, library=library or self.engineering,
-            granted_by=self.grantor, reason="Pilot", **fields,
-        )
-
-    def test_grant_gives_access_and_survives_every_kind_of_sign_in(self):
-        self.engineering_course = Course.objects.create(
+class DirectoryAccessTests(LibraryCase):
+    def test_leftover_local_grants_give_no_access(self):
+        grantor = get_user_model().objects.create_user(username=ADMIN_OID)
+        engineering_course = Course.objects.create(
             group=self.engineering, created_by=self.user, status="ready", title="Engineering",
             html="<!doctype html>Engineering",
         )
-        self.grant()
-        for headers in (self.headers, token(groups=[]), token(**OVERAGE), token(), self.headers):
-            self.assertEqual(self.status(f"/libraries/{ENGINEERING}/", headers), 200)
-            self.assertEqual(self.status(f"/courses/{self.engineering_course.id}/", headers), 200)
-        self.assertEqual(LibraryGrant.objects.active().count(), 1)
+        for library in (self.sales, self.engineering):
+            LibraryGrant.objects.create(
+                profile=self.profile, library=library, granted_by=grantor, reason="Pilot",
+            )
+        self.assertEqual(self.status(f"/libraries/{ENGINEERING}/", self.headers), 404)
+        self.assertEqual(self.status(f"/courses/{engineering_course.id}/", self.headers), 404)
+        overage = token(**OVERAGE)
+        self.assertEqual(self.status(f"/courses/{self.course.id}/", overage), 404)
+        self.assertEqual(self.status(f"/courses/{self.course.id}/manage/", overage), 404)
+        self.assertFalse(self.listed(overage))
 
     def test_unresolved_sign_in_never_uses_the_stale_snapshot(self):
         self.assertEqual(self.status(f"/courses/{self.course.id}/", self.headers), 200)
@@ -63,35 +56,7 @@ class LocalAccessTests(LibraryCase):
                 self.assertEqual(list(self.profile.groups.all()), [self.sales])
         self.assertEqual(self.status(f"/courses/{self.course.id}/", self.headers), 200)
 
-    def test_local_grant_does_not_promote_a_viewer_or_grant_editing_rights(self):
-        Profile.objects.filter(pk=self.profile.pk).update(role="viewer")
-        self.grant(self.sales)
-        overage = token(**OVERAGE)
-        self.assertEqual(self.status(f"/courses/{self.course.id}/", overage), 200)
-        self.assertEqual(self.status(f"/courses/{self.course.id}/manage/", overage), 404)
-        self.assertEqual(self.status(f"/libraries/{SALES}/new/", overage), 404)
-        self.assertEqual(self.status("/admin/", overage), 404)
-
-    def test_revocation_and_expiry_apply_on_the_next_request(self):
-        grant = self.grant(self.sales)
-        overage = token(**OVERAGE)
-        self.assertEqual(self.status(f"/courses/{self.course.id}/", overage), 200)
-        grant.revoked, grant.revoked_by = timezone.now(), self.grantor
-        grant.save()
-        self.assertEqual(self.status(f"/courses/{self.course.id}/", overage), 404)
-        again = self.grant(self.sales, expires=timezone.now() + timedelta(hours=1))
-        self.assertEqual(self.status(f"/courses/{self.course.id}/", overage), 200)
-        LibraryGrant.objects.filter(pk=again.pk).update(expires=timezone.now())
-        self.assertEqual(self.status(f"/courses/{self.course.id}/", overage), 404)
-
-    def test_hidden_library_ignores_local_grants(self):
-        self.grant(self.sales)
-        self.sales.status = "hidden"
-        self.sales.save()
-        self.assertEqual(self.status(f"/courses/{self.course.id}/", token(**OVERAGE)), 404)
-
-    def test_suspended_users_stay_blocked_with_grants_or_admin_rights(self):
-        self.grant(self.sales)
+    def test_suspended_users_stay_blocked_even_with_admin_rights(self):
         Profile.objects.filter(pk=self.profile.pk).update(local_admin=True)
         self.user.is_active = False
         self.user.save()
@@ -102,9 +67,11 @@ class LocalAccessTests(LibraryCase):
         self.user.refresh_from_db()
         self.assertFalse(self.user.is_active)
 
+
 class AdministratorTests(LibraryCase):
     def edit(self, profile, headers, **fields):
-        data = {"role": profile.role, "is_active": "on", "_save": "Save", **fields}
+        creating = list(profile.creator_libraries.values_list("pk", flat=True))
+        data = {"creator_libraries": creating, "is_active": "on", "_save": "Save", **fields}
         return self.client.post(
             f"/admin/app_portal/profile/{profile.pk}/change/", data, **headers,
         )
@@ -112,9 +79,6 @@ class AdministratorTests(LibraryCase):
     def test_library_membership_never_implies_administration(self):
         library = EntraGroup.objects.create(object_id=ADMIN, name="Admins", status="enabled")
         self.profile.groups.add(library)
-        LibraryGrant.objects.create(
-            profile=self.profile, library=library, granted_by=self.user, reason="Test",
-        )
         for headers in (self.headers, token(**OVERAGE), token(groups=[])):
             self.assertEqual(self.status("/admin/", headers), 404)
             self.user.refresh_from_db()
@@ -153,10 +117,9 @@ class AdministratorTests(LibraryCase):
             change_message__contains="admin.app_admin_revoked",
         ).exists())
 
-    def test_regular_users_cannot_reach_grant_or_admin_endpoints(self):
+    def test_regular_users_cannot_reach_admin_endpoints(self):
         for path in (
-            "/admin/app_portal/librarygrant/", "/admin/app_portal/librarygrant/add/",
-            "/admin/app_portal/entragroup/add/",
+            "/admin/app_portal/entragroup/", "/admin/app_portal/entragroup/add/",
             f"/admin/app_portal/profile/{self.profile.pk}/change/",
         ):
             self.assertEqual(self.status(path, self.headers), 404)

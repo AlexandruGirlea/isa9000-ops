@@ -41,7 +41,7 @@ class GraphOffTests(LibraryCase):
     def test_off_by_default_makes_no_call_even_with_a_token(self):
         with patch("requests.sessions.Session.request") as request:
             response = self.client.get("/libraries/", **OVERFLOW)
-        self.assertContains(response, "local library access")
+        self.assertContains(response, "could not read your groups")
         request.assert_not_called()
 
 
@@ -55,7 +55,7 @@ class GraphTests(LibraryCase):
                 self.client = Client()
                 headers = {**token(**claims), **ACCESS}
                 response = self.client.get("/libraries/", **headers)
-                self.assertNotContains(response, "local library access")
+                self.assertNotContains(response, "could not read your groups")
                 self.assertEqual(self.status(f"/libraries/{SALES}/", headers), 200)
                 self.assertEqual(self.status(f"/courses/{self.course.id}/", headers), 200)
                 self.assertEqual(self.status(f"/libraries/{ENGINEERING}/", headers), 404)
@@ -65,12 +65,80 @@ class GraphTests(LibraryCase):
                 self.assertEqual(self.profile.membership, "complete")
                 self.assertEqual(list(self.profile.groups.all()), [self.sales])
 
+    def test_everyone_is_looked_up_and_the_answer_replaces_the_token_list(self):
+        headers = {**self.headers, **ACCESS}
+        with patch(
+            "requests.sessions.Session.request", side_effect=graph(groups=[ENGINEERING]),
+        ) as request:
+            self.assertEqual(self.status(f"/libraries/{SALES}/", headers), 404)
+            self.assertEqual(self.status(f"/courses/{self.course.id}/", headers), 404)
+            self.assertEqual(request.call_count, 2)
+        self.assertEqual(list(self.profile.groups.all()), [self.engineering])
+
+    def test_leaving_a_group_takes_effect_within_five_minutes(self):
+        headers = {**self.headers, **ACCESS}
+        course = f"/courses/{self.course.id}/"
+        now = time.time()
+        with patch("requests.sessions.Session.request", side_effect=graph()) as request:
+            self.assertEqual(self.status(course, headers), 200)
+            self.assertEqual(self.status(course, headers), 200)
+            self.assertEqual(request.call_count, 2)
+        with patch(
+            "requests.sessions.Session.request", side_effect=graph(groups=[]),
+        ) as request, patch("core.entra.time.time", return_value=now + 240):
+            self.assertEqual(self.status(course, headers), 200)
+            request.assert_not_called()
+        with patch(
+            "requests.sessions.Session.request", side_effect=graph(groups=[]),
+        ) as request, patch("core.entra.time.time", return_value=now + 360):
+            self.assertEqual(self.status(course, headers), 404)
+            self.assertEqual(request.call_count, 2)
+        self.assertFalse(self.profile.groups.exists())
+
+    def test_a_failed_recheck_keeps_the_last_answer_not_the_older_token_list(self):
+        headers = {**self.headers, **ACCESS}
+        course = f"/courses/{self.course.id}/"
+        now = time.time()
+        with patch("requests.sessions.Session.request", side_effect=graph(groups=[])):
+            self.assertEqual(self.status(course, headers), 404)
+        with patch(
+            "requests.sessions.Session.request", side_effect=[requests.ConnectTimeout()],
+        ) as request, patch("core.entra.time.time", return_value=now + 400):
+            self.assertEqual(self.status(course, headers), 404)
+            self.assertEqual(self.status(course, headers), 404)
+            self.assertEqual(request.call_count, 1)
+        with patch(
+            "requests.sessions.Session.request", side_effect=graph(),
+        ) as request, patch("core.entra.time.time", return_value=now + 461):
+            self.assertEqual(self.status(course, headers), 200)
+            self.assertEqual(request.call_count, 2)
+
+    def test_before_any_answer_the_token_list_is_used(self):
+        course = f"/courses/{self.course.id}/"
+        with patch(
+            "requests.sessions.Session.request", side_effect=[requests.ConnectTimeout()],
+        ):
+            self.assertEqual(self.status(course, {**self.headers, **ACCESS}), 200)
+        self.client = Client()
+        with patch("requests.sessions.Session.request") as request:
+            self.assertEqual(self.status(course, self.headers), 200)
+            request.assert_not_called()
+
+    def test_someone_elses_access_token_drops_an_earlier_answer(self):
+        now = time.time()
+        with patch("requests.sessions.Session.request", side_effect=graph()):
+            self.assertEqual(self.status(f"/libraries/{SALES}/", OVERFLOW), 200)
+        with patch(
+            "requests.sessions.Session.request", side_effect=graph(oid=OTHER),
+        ), patch("core.entra.time.time", return_value=now + 400):
+            self.assertEqual(self.status(f"/libraries/{SALES}/", OVERFLOW), 404)
+
     def test_someone_elses_access_token_grants_nothing(self):
         with patch(
             "requests.sessions.Session.request", side_effect=graph(oid=OTHER),
         ) as request:
             response = self.client.get("/libraries/", **OVERFLOW)
-            self.assertContains(response, "local library access")
+            self.assertContains(response, "could not read your groups")
             self.assertEqual(self.status(f"/libraries/{SALES}/", OVERFLOW), 404)
             self.assertEqual(request.call_count, 1)
         self.profile.refresh_from_db()
@@ -108,7 +176,7 @@ class GraphTests(LibraryCase):
                 self.client = Client()
                 response = self.client.get("/libraries/", **OVERFLOW)
                 self.assertEqual(response.status_code, 200)
-                self.assertContains(response, "local library access")
+                self.assertContains(response, "could not read your groups")
                 self.assertEqual(self.status(f"/libraries/{SALES}/", OVERFLOW), 404)
                 self.assertEqual(request.call_count, 1)
             now = time.time()
@@ -126,7 +194,7 @@ class GraphTests(LibraryCase):
             ):
                 self.client = Client()
                 self.assertContains(
-                    self.client.get("/libraries/", **OVERFLOW), "local library access",
+                    self.client.get("/libraries/", **OVERFLOW), "could not read your groups",
                 )
 
     def test_cached_list_is_not_reused_for_someone_else(self):

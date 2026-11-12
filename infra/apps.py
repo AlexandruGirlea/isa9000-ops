@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pulumi
 import pulumi_azuread as azuread
 from pulumi_azure_native import app, keyvault
@@ -147,10 +149,10 @@ web_env = variables(
 )
 minimum = s.config.get_int("webMinReplicas")
 if minimum is None:
-    minimum = 1 if s.environment == "prod" else 0
+    minimum = 1
 maximum = s.config.get_int("webMaxReplicas") or (5 if s.environment == "prod" else 3)
-if minimum < 0 or maximum < max(1, minimum):
-    raise ValueError("webMaxReplicas must be positive and at least webMinReplicas")
+if minimum < 1 or maximum < minimum:
+    raise ValueError("webMinReplicas must be at least 1 and webMaxReplicas at least webMinReplicas")
 web = app.ContainerApp(
     "web",
     container_app_name=edge.web_name,
@@ -259,69 +261,77 @@ auth = app.ContainerAppsAuthConfig(
 
 worker_secrets = [*s.config_secrets, *credential_refs["worker"]]
 worker_secret_env = {"ISA9000_CALLBACK_SECRET": "callback", "ISA9000_PAYLOAD_KEY": "payload-key"}
-worker = app.Job(
+worker_template = {
+    "containers": [
+        {
+            "name": "worker",
+            "image": s.image,
+            "args": ["python", "-m", "worker"],
+            "resources": (
+                {"cpu": 2, "memory": "4Gi"} if s.environment == "prod"
+                else {"cpu": 1, "memory": "2Gi"}
+            ),
+            "env": variables(
+                {
+                    **shared_env,
+                    "OTEL_SERVICE_NAME": "isa9000-worker",
+                    "AZURE_CLIENT_ID": data.worker_identity.client_id,
+                    "ISA9000_AZURE_OPENAI_ENDPOINT": data.foundry_endpoint,
+                    "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat(
+                        "https://", edge.azure_host
+                    ),
+                },
+                worker_secret_env,
+            ),
+            "volume_mounts": [s.config_mount],
+        }
+    ],
+    "volumes": [s.config_volume],
+}
+worker_common = {
+    "environment_id": s.app_environment.id,
+    "identity": identity(data.worker_identity),
+    "workload_profile_name": "Consumption",
+    "opts": pulumi.ResourceOptions(depends_on=[*data.permissions, auth]),
+    **data.common,
+}
+worker_rule = {
+    "type": "azure-servicebus",
+    "identity": data.worker_identity.id,
+    "metadata": {
+        "namespace": data.bus.name,
+        "queueName": "tasks",
+        "messageCount": "1",
+    },
+}
+worker_maximum = s.config.get_int("workerMaxExecutions")
+if worker_maximum is None:
+    worker_maximum = 5
+if worker_maximum < 1:
+    raise ValueError("workerMaxExecutions must be at least 1")
+worker_polling = s.config.get_int("workerPollingSeconds") or 10
+worker_template["containers"][0]["args"] = [
+    "python", "-c", Path(__file__).with_name("worker_service.py").read_text(),
+]
+worker = app.ContainerApp(
     "worker",
-    job_name=f"{s.prefix}-worker",
-    environment_id=s.app_environment.id,
-    identity=identity(data.worker_identity),
-    workload_profile_name="Consumption",
+    container_app_name=f"{s.prefix}-worker",
     configuration={
-        "trigger_type": "Event",
-        "replica_timeout": 7200,
-        "replica_retry_limit": 0,
+        "active_revisions_mode": "Single",
         "secrets": worker_secrets,
         "registries": registries(data.worker_identity),
-        "event_trigger_config": {
-            "parallelism": 1,
-            "replica_completion_count": 1,
-            "scale": {
-                "min_executions": 0,
-                "max_executions": s.config.get_int("workerMaxExecutions") or 5,
-                "polling_interval": s.config.get_int("workerPollingSeconds") or 10,
-                "rules": [
-                    {
-                        "name": "tasks",
-                        "type": "azure-servicebus",
-                        "identity": data.worker_identity.id,
-                        "metadata": {
-                            "namespace": data.bus.name,
-                            "queueName": "tasks",
-                            "messageCount": "1",
-                        },
-                    }
-                ],
-            },
-        },
     },
     template={
-        "containers": [
-            {
-                "name": "worker",
-                "image": s.image,
-                "args": ["python", "-m", "worker"],
-                "resources": (
-                    {"cpu": 2, "memory": "4Gi"} if s.environment == "prod"
-                    else {"cpu": 1, "memory": "2Gi"}
-                ),
-                "env": variables(
-                    {
-                        **shared_env,
-                        "OTEL_SERVICE_NAME": "isa9000-worker",
-                        "AZURE_CLIENT_ID": data.worker_identity.client_id,
-                        "ISA9000_AZURE_OPENAI_ENDPOINT": data.foundry_endpoint,
-                        "ISA9000_CALLBACK_BASE_URL": pulumi.Output.concat(
-                            "https://", edge.azure_host
-                        ),
-                    },
-                    worker_secret_env,
-                ),
-                "volume_mounts": [s.config_mount],
-            }
-        ],
-        "volumes": [s.config_volume],
+        **worker_template,
+        "termination_grace_period_seconds": 600,
+        "scale": {
+            "min_replicas": 1,
+            "max_replicas": worker_maximum,
+            "polling_interval": worker_polling,
+            "rules": [{"name": "tasks", "custom": worker_rule}],
+        },
     },
-    opts=pulumi.ResourceOptions(depends_on=[*data.permissions, auth]),
-    **data.common,
+    **worker_common,
 )
 watchdog = app.Job(
     "watchdog",

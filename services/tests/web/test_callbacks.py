@@ -130,6 +130,36 @@ class CallbackTests(PortalCase):
                     self.callback("result", {"state": "stopped"}, run=run)
                 self.assertEqual(delete.called, deleted)
 
+    def test_unsuccessful_regeneration_keeps_published_podcast_unchanged(self):
+        before = (self.course.status, self.course.html, self.course.manifest)
+        for state in ("failed", "stopped", "needs_review"):
+            with self.subTest(state=state):
+                run = Run.objects.create(
+                    course=self.course, requested_by=self.user, task="record", episodes=[1],
+                )
+                self.callback("accept", run=run)
+                self.callback("result", {"state": state, "manifest": {
+                    **self.manifest, "title": "Unpublished replacement",
+                }}, run=run)
+                self.course.refresh_from_db()
+                self.assertEqual(
+                    (self.course.status, self.course.html, self.course.manifest), before,
+                )
+                run.refresh_from_db()
+                self.assertEqual(run.status, state)
+
+    def test_used_uploads_are_deleted_once_the_podcast_is_written(self):
+        upload = "uploads/x/1-handbook.md"
+        self.run.sources = ["https://example.invalid/a", upload]
+        self.run.save()
+        self.callback("accept")
+        with patch("app_portal.callbacks.storage.delete_blobs") as delete:
+            self.callback("result", {"state": "failed", "error": "No", "error_source": "worker"})
+            delete.assert_not_called()
+            Run.objects.filter(pk=self.run.pk).update(status="running")
+            self.callback("result", {"state": "needs_review", "manifest": self.manifest})
+        self.assertEqual(list(delete.call_args.args[0]), [upload])
+
     def test_failed_and_stopped_preserve_course_status_and_html_but_save_manifest(self):
         for status in ("draft", "needs_review", "ready"):
             for state in ("failed", "stopped"):

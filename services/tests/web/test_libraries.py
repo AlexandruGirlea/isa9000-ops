@@ -3,10 +3,11 @@ from __future__ import annotations
 import importlib
 import runpy
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from app_portal.models import Course, EntraGroup, Profile
+from app_portal.models import Course, EntraGroup, LibraryGrant, Profile
 from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -55,12 +56,18 @@ class VisibilityTableTests(LibraryCase):
         self.assertEqual(self.status(f"/libraries/{SALES}/", viewer()), 404)
         self.assertTrue(self.listed(self.headers))
 
-    def test_empty_library_shows_to_creators_and_admins_only(self):
-        self.assertFalse(self.listed(viewer([OTHER]), OTHER))
-        for path in (f"/libraries/{OTHER}/", f"/libraries/{OTHER}/new/"):
-            self.assertEqual(self.status(path, viewer([OTHER])), 404)
-            for headers in (token(groups=[OTHER]), administrator()):
-                self.assertTrue(self.listed(headers, OTHER))
+    def test_empty_library_shows_to_its_creators_and_admins_only(self):
+        paths = (f"/libraries/{OTHER}/", f"/libraries/{OTHER}/new/")
+        # A member who is a creator in another library is an ordinary member here.
+        member = token(groups=[OTHER])
+        for headers in (viewer([OTHER]), member):
+            self.assertFalse(self.listed(headers, OTHER))
+            for path in paths:
+                self.assertEqual(self.status(path, headers), 404)
+        self.profile.creator_libraries.add(self.empty)
+        for headers in (member, administrator()):
+            self.assertTrue(self.listed(headers, OTHER))
+            for path in paths:
                 self.assertEqual(self.status(path, headers), 200)
 
     def test_published_shared_podcast_counts_but_a_shared_draft_does_not(self):
@@ -112,7 +119,7 @@ class DirectoryClaimTests(LibraryCase):
             ) as request:
                 oid = str(uuid.uuid4())
                 response = self.client.get("/libraries/", **token(oid, **claims))
-                self.assertContains(response, "local library access")
+                self.assertContains(response, "could not read your groups")
                 self.assertContains(response, oid)
                 profile = Profile.objects.get(user__username=oid)
                 self.assertEqual(profile.membership, "overage")
@@ -130,7 +137,7 @@ class DirectoryClaimTests(LibraryCase):
                 claims = {} if groups is None else {"groups": groups}
                 headers = {"HTTP_X_MS_TOKEN_AAD_ID_TOKEN": principal(oid, **claims)}
                 self.assertContains(
-                    self.client.get("/libraries/", **headers), "local library access",
+                    self.client.get("/libraries/", **headers), "could not read your groups",
                 )
                 self.assertEqual(
                     Profile.objects.get(user__username=oid).membership, membership,
@@ -179,3 +186,35 @@ class MigrationTests(LibraryCase):
         for group in (idle_named, idle_unnamed, self.engineering, self.empty):
             self.assertEqual(status[group.pk], "hidden")
         self.assertTrue(self.profile.groups.filter(pk=idle_unnamed.pk).exists())
+
+    def test_existing_creators_keep_exactly_the_libraries_they_could_create_in(self):
+        def person(role, membership="complete"):
+            user = get_user_model().objects.create_user(username=str(uuid.uuid4()))
+            return Profile.objects.create(user=user, role=role, membership=membership)
+
+        def library(name, status="enabled"):
+            return EntraGroup.objects.create(object_id=uuid.uuid4(), name=name, status=status)
+
+        hidden, granted, lapsed = library("Hidden", "hidden"), library("Granted"), library("Lapsed")
+        Profile.objects.filter(pk=self.profile.pk).update(role="creator")
+        self.profile.creator_libraries.clear()
+        self.profile.groups.add(hidden)
+        LibraryGrant.objects.create(profile=self.profile, library=granted, granted_by=self.user)
+        LibraryGrant.objects.create(
+            profile=self.profile, library=lapsed, granted_by=self.user,
+            expires=timezone.now() - timedelta(days=1),
+        )
+        LibraryGrant.objects.create(
+            profile=self.profile, library=self.engineering, granted_by=self.user,
+            revoked=timezone.now(), revoked_by=self.user,
+        )
+        onlooker, unresolved = person("viewer"), person("creator", "overage")
+        onlooker.groups.add(self.sales)
+        unresolved.groups.add(self.sales)
+        migration = importlib.import_module(
+            "app_portal.migrations.0003_library_creators_run_episodes"
+        )
+        migration.creators_keep_their_libraries(apps, None)
+        self.assertEqual(set(self.profile.creator_libraries.all()), {self.sales, granted})
+        for profile in (onlooker, unresolved):
+            self.assertFalse(profile.creator_libraries.exists())

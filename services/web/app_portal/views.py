@@ -25,11 +25,12 @@ from isa9000.links import MAX_SOURCES, MAX_URL_CHARS
 from isa9000.sources import MAX_PDF_PAGES
 
 from app_portal.covers import CoverForm, update_cover
-from app_portal.forms import ApprovalForm, CreateForm, TitleForm
+from app_portal.forms import ApprovalForm, CreateForm, GenerationForm, TitleForm
 from app_portal.models import Course, Run
 from app_portal.permissions import (
     can_manage_course,
     course_for,
+    creator_libraries,
     group_for,
     groups_for,
     is_creator,
@@ -168,9 +169,22 @@ def check_source(request, group_id):
     return JsonResponse({"ok": True, "detail": "Valid public URL"})
 
 
+def numbered_episode(manifest, number):
+    return next(
+        (episode for episode in manifest.get("episodes", []) if str(episode["number"]) == number),
+        None,
+    )
+
+
 def history_row(course):
     run = next(iter(course.history_runs), None)
     status = run.status if run and run.status != "ready" else course.status
+    if (
+        run and run.episodes and course.status == "ready"
+        and status in {"failed", "stopped", "needs_review"}
+    ):
+        # New audio that was not recorded leaves the published podcast as it was.
+        status = "ready"
     if status == "needs_review":
         action, url = "Review transcripts", f"/courses/{course.id}/manage/"
     elif run:
@@ -199,7 +213,7 @@ def history(request):
     if not is_creator(request.user):
         raise Http404
     courses = (
-        Course.objects.filter(created_by=request.user, group__in=groups_for(request.user))
+        Course.objects.filter(created_by=request.user, group__in=creator_libraries(request.user))
         .select_related("group")
         .defer("html", "manifest", "generation_settings")
         .prefetch_related(
@@ -207,7 +221,7 @@ def history(request):
                 "runs",
                 queryset=Run.objects.select_related("canceled_by")
                 .only(
-                    "id", "course_id", "status", "created", "canceled_by__first_name",
+                    "id", "course_id", "status", "episodes", "created", "canceled_by__first_name",
                     "canceled_by__last_name", "canceled_by__email", "canceled_by__username",
                 )
                 .order_by("-created", "-id"),
@@ -239,7 +253,15 @@ def manage(request, course_id):
         request.POST if request.method == "POST" and action == "record" else None,
         initial={"revision": course.updated.isoformat()},
     )
-    action_form = {"rename": title_form, "cover": cover_form, "record": approval_form}.get(action)
+    voice_form = GenerationForm(
+        {"pronunciations": request.POST.get("pronunciations", "")}
+        if request.method == "POST" and action == "pronunciations" else None,
+        generation_settings=course.generation_settings,
+    )
+    action_form = {
+        "rename": title_form, "cover": cover_form, "record": approval_form,
+        "pronunciations": voice_form,
+    }.get(action)
     if request.method == "POST" and (action_form is None or action_form.is_valid()):
         try:
             with transaction.atomic():
@@ -276,6 +298,18 @@ def manage(request, course_id):
                     if run:
                         return redirect("run", run_id=run.id)
                     return redirect("manage", course_id=course.id)
+                if action == "pronunciations":
+                    course.generation_settings = {
+                        **course.generation_settings,
+                        "pronunciations": voice_form.cleaned_data["pronunciations"],
+                    }
+                    course.save(update_fields=["generation_settings", "updated"])
+                    record(
+                        request.user, "course.updated", course,
+                        changed_fields=["pronunciations"], course_id=str(course.id),
+                        group_id=str(course.group_id),
+                    )
+                    return redirect("manage", course_id=course.id)
                 if action == "record":
                     if course.status != "needs_review":
                         raise ValueError("This podcast is not awaiting review.")
@@ -292,16 +326,29 @@ def manage(request, course_id):
                         group_id=str(course.group_id), run_id=str(run.id), state="approved",
                     )
                     return redirect("run", run_id=run.id)
+                if action == "rerecord_episode":
+                    # The published podcast keeps its audio until the new recording is ready.
+                    if course.status != "ready":
+                        raise ValueError(
+                            "Approve the transcripts first. Approval records every episode "
+                            "that has no audio."
+                        )
+                    episode = numbered_episode(course.manifest, request.POST.get("episode"))
+                    if episode is None:
+                        raise Http404
+                    if not episode.get("audio"):
+                        raise ValueError("This episode has no audio to replace yet.")
+                    run = new_run(course, request.user, "record", episodes=[episode["number"]])
+                    record(
+                        request.user, "episode.rerecord_requested", course,
+                        changed_fields=[f"episodes.{episode['number']}.audio"],
+                        course_id=str(course.id), group_id=str(course.group_id),
+                        run_id=str(run.id),
+                    )
+                    return redirect("run", run_id=run.id)
                 if action == "delete_episode":
                     manifest = deepcopy(course.manifest)
-                    episode = next(
-                        (
-                            episode
-                            for episode in manifest.get("episodes", [])
-                            if str(episode["number"]) == request.POST.get("episode")
-                        ),
-                        None,
-                    )
+                    episode = numbered_episode(manifest, request.POST.get("episode"))
                     if episode is None:
                         raise Http404
                     manifest["episodes"].remove(episode)
@@ -350,6 +397,11 @@ def manage(request, course_id):
         for episode in course.manifest.get("episodes", [])
     ]
     active_run = course.runs.filter(status__in=["queued", "running"]).first()
+    created = (
+        course.runs.filter(task="create").order_by("created")
+        .values("request", "sources", "follow_links").first()
+        or {}
+    )
     return page(
         request,
         "manage.html",
@@ -359,9 +411,15 @@ def manage(request, course_id):
             "title_form": title_form,
             "cover_form": cover_form,
             "approval_form": approval_form,
+            "voice_form": voice_form,
             "runs": course.runs.all(),
-            "prompt": course.runs.filter(task="create").order_by("created")
-            .values_list("request", flat=True).first(),
+            "prompt": created.get("request"),
+            "sources": [
+                {"file": source.split("/", 2)[-1].partition("-")[2]}
+                if source.startswith("uploads/") else {"url": source}
+                for source in created.get("sources") or []
+            ],
+            "follow_links": created.get("follow_links"),
             "active": active_run is not None,
             "active_run": active_run,
         },

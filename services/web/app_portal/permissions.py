@@ -1,26 +1,52 @@
 from __future__ import annotations
 
-from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models import Count, Exists, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
-from app_portal.models import Course, EntraGroup, LibraryGrant, Profile
-
-
-def is_creator(user):
-    return user.is_superuser or user.profile.role == "creator"
+from app_portal.models import Course, EntraGroup, Profile
 
 
 def groups_for(user):
     enabled = EntraGroup.objects.filter(status="enabled")
     if user.is_superuser:
         return enabled
-    access = Q(pk__in=LibraryGrant.objects.active().filter(profile=user.profile).values("library"))
     # Only this sign-in's groups count. A stored membership may come from another sign-in.
-    if user.directory_groups:
-        access |= Q(pk__in=user.directory_groups)
-    return enabled.filter(access)
+    return enabled.filter(pk__in=user.directory_groups)
+
+
+def assigned_libraries(user):
+    # Read once per request: every request builds its own user object. A group chosen before
+    # it is enabled as a library gives nothing yet, so only enabled ones count.
+    if not hasattr(user, "assigned_libraries"):
+        user.assigned_libraries = set(
+            user.profile.creator_libraries.filter(status="enabled").values_list("pk", flat=True)
+        )
+    return user.assigned_libraries
+
+
+def assigned_rows(user):
+    return Profile.creator_libraries.through.objects.filter(profile=user.profile).values(
+        "entragroup"
+    )
+
+
+def is_creator(user):
+    # Opens the creator pages. Each of them lists only the libraries the person can use.
+    return user.is_superuser or bool(assigned_libraries(user))
+
+
+def creator_libraries(user):
+    # Being a creator never opens a library: the person also needs access to it.
+    libraries = groups_for(user)
+    return libraries if user.is_superuser else libraries.filter(pk__in=assigned_rows(user))
+
+
+def creates_in(user, library_id):
+    return (
+        user.is_superuser or library_id in assigned_libraries(user)
+    ) and groups_for(user).filter(pk=library_id).exists()
 
 
 def count_of(rows, group_field):
@@ -31,10 +57,10 @@ def count_of(rows, group_field):
 
 
 def visible_libraries(user):
-    creator = is_creator(user)
     owned = Course.objects.filter(group=OuterRef("pk"))
-    if not creator:
-        owned = owned.filter(status="ready")
+    if not user.is_superuser:
+        # Drafts count only in the libraries where this person is a creator.
+        owned = owned.filter(Q(status="ready") | Q(group__in=assigned_rows(user)))
     shared = Course.objects.filter(
         shared_groups=OuterRef("pk"), status="ready", group__status="enabled",
     )
@@ -47,13 +73,19 @@ def visible_libraries(user):
     libraries = groups_for(user).annotate(
         podcast_total=count_of(owned, "group") + count_of(shared, "shared_groups"), **newest,
     )
-    return libraries if creator else libraries.filter(podcast_total__gt=0)
+    if user.is_superuser:
+        return libraries
+    # Pagination only needs to know whether a podcast exists. Counting every matching
+    # podcast here repeats both correlated aggregates across all accessible libraries.
+    return libraries.filter(
+        Q(pk__in=assigned_rows(user)) | Q(Exists(owned)) | Q(Exists(shared))
+    )
 
 
 def addable_libraries(user):
     if not is_creator(user):
         return EntraGroup.objects.none()
-    return groups_for(user)
+    return creator_libraries(user)
 
 
 def group_for(user, group_id, manage=False):
@@ -77,12 +109,12 @@ def course_for(user, course_id, manage=False):
 
 
 def can_manage_course(user, course):
-    return is_creator(user) and groups_for(user).filter(pk=course.group_id).exists()
+    return creates_in(user, course.group_id)
 
 
-def visible_courses(user, group):
+def visible_courses(group, drafts):
     owned = Q(group=group)
-    if not is_creator(user):
+    if not drafts:
         owned &= Q(status="ready")
     shared = Course.shared_groups.through.objects.filter(entragroup=group).values("course")
     return Course.objects.filter(owned | Q(pk__in=shared, status="ready"), group__status="enabled")
@@ -92,17 +124,4 @@ def people_with_access(library):
     members = Profile.groups.through.objects.filter(
         entragroup=library, profile__membership="complete",
     ).values("profile")
-    grants = LibraryGrant.objects.active().filter(library=library).values("profile")
-    return Profile.objects.filter(Q(pk__in=members) | Q(pk__in=grants))
-
-
-def access_sources(profile):
-    sources = {}
-    if profile.membership == "complete":
-        for library in profile.groups.filter(status="enabled"):
-            sources.setdefault(library, []).append("Entra membership")
-    grants = LibraryGrant.objects.active().filter(profile=profile, library__status="enabled")
-    for grant in grants.select_related("library"):
-        expiry = f" until {grant.expires:%d %b %Y %H:%M} UTC" if grant.expires else ""
-        sources.setdefault(grant.library, []).append(f"Local access{expiry}")
-    return sources
+    return Profile.objects.filter(pk__in=members)

@@ -34,7 +34,7 @@ config:
       capacity: 50
   isa9000:workerMaxExecutions: 5
   isa9000:workerPollingSeconds: 10
-  isa9000:webMinReplicas: 0
+  isa9000:webMinReplicas: 1
   isa9000:dailyRunsPerUser: 5
   isa9000:maxUploadMb: 10
   isa9000:maxFiles: 5
