@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.8
+
+- Library access comes from Entra groups only; local library access is removed.
+- Creators are assigned per library, replacing the global Creator role.
+- With `isa9000:graphGroups`, groups are re-read from Microsoft every five minutes.
+- Manage page: regenerate one episode's audio, edit pronunciations and see the sources.
+- isa9000 0.3.5: scripts full of prices and other numbers no longer fail the audio check.
+- The web app and the worker keep at least one replica; the worker is now a Container App.
+- Before upgrading, read "Upgrading from 0.1.7 or earlier" in `docs/azure/updates.md`.
+
 ## 0.1.7
 
 - isa9000 0.3.4: a PDF read that hits a server or connection error on Azure is retried, up to
